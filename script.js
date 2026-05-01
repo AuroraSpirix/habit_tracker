@@ -28,9 +28,18 @@ const Storage = {
 };
 
 function _scheduleSave() {
-    clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(_flushToJsonBin, 600); // debounce 600 ms
+    if (_saveTimer) return; // already scheduled
+    _saveTimer = setTimeout(() => {
+        _saveTimer = null;
+        _flushToJsonBin();
+    }, 60000); // save at most once per minute
 }
+
+// Also save immediately when the user closes/leaves the page
+window.addEventListener('beforeunload', () => {
+    clearTimeout(_saveTimer);
+    _flushToJsonBin();
+});
 
 async function _flushToJsonBin() {
     try {
