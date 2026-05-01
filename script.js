@@ -1,3 +1,62 @@
+// ─── JSONBin Storage Layer ────────────────────────────────────────────────────
+// Single source of truth: one JSONBin document holds ALL app data as a flat
+// key→value map (values are JSON strings, matching the localStorage API).
+// A synchronous in-memory cache lets the rest of the code stay unchanged.
+
+const JSONBIN_URL = 'https://api.jsonbin.io/v3/b/69f53af2856a6821899747a5';
+
+const JSONBIN_HEADERS = {
+  'Content-Type': 'application/json',
+  'X-Access-Key': '$2a$10$3y.dwt/3tzWk3GSu3tXtDeFKHKk25l68iLnGPUjauJA8zdcHfmMji'
+};
+
+let _cache = {};          // in-memory mirror of the bin
+let _saveTimer = null;    // debounce handle
+
+const Storage = {
+    getItem(key) {
+        return Object.prototype.hasOwnProperty.call(_cache, key) ? _cache[key] : null;
+    },
+    setItem(key, value) {
+        _cache[key] = value;
+        _scheduleSave();
+    },
+    removeItem(key) {
+        delete _cache[key];
+        _scheduleSave();
+    }
+};
+
+function _scheduleSave() {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(_flushToJsonBin, 600); // debounce 600 ms
+}
+
+async function _flushToJsonBin() {
+    try {
+        await fetch(JSONBIN_URL, {
+            method: 'PUT',
+            headers: JSONBIN_HEADERS,
+            body: JSON.stringify(_cache)
+        });
+    } catch (e) {
+        console.warn('JSONBin save failed:', e);
+    }
+}
+
+async function _loadFromJsonBin() {
+    try {
+        const res = await fetch(JSONBIN_URL + '/latest', { headers: JSONBIN_HEADERS });
+        if (res.ok) {
+            const data = await res.json();
+            _cache = data.record || {};
+        }
+    } catch (e) {
+        console.warn('JSONBin load failed, starting fresh:', e);
+        _cache = {};
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 const svg = document.getElementById('radarChart');
 const statsDisplay = document.getElementById('stats-display');
 
@@ -35,7 +94,7 @@ function getDateKey(date) {
 
 function loadDayData() {
     const key = getDateKey(viewDate);
-    const savedData = localStorage.getItem(STORAGE_KEY);
+    const savedData = Storage.getItem(STORAGE_KEY);
     const allData = savedData ? JSON.parse(savedData) : {};
     const dayData = allData[key] || {};
 
@@ -66,14 +125,14 @@ function loadDayData() {
 
 function saveDayData() {
     const key = getDateKey(viewDate);
-    const savedData = localStorage.getItem(STORAGE_KEY);
+    const savedData = Storage.getItem(STORAGE_KEY);
     const allData = savedData ? JSON.parse(savedData) : {};
 
     allData[key] = {
         vitals: categories,
         avoided: avoidedToday
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(allData));
+    Storage.setItem(STORAGE_KEY, JSON.stringify(allData));
 }
 
 function updateDateDisplay() {
@@ -137,29 +196,29 @@ function createGrid() {
 
         let hasNote = false;
         if (cat.name === 'Spirituality') {
-            const all = JSON.parse(localStorage.getItem(SPIRITUAL_KEY) || '{}');
+            const all = JSON.parse(Storage.getItem(SPIRITUAL_KEY) || '{}');
             const entries = all[getDateKey(viewDate)] || [];
             hasNote = entries.some(e => e.topic || e.notes);
         }
         else if (['Mindfulness', 'Recovery', 'Reflection'].includes(cat.name)) {
-            const all = JSON.parse(localStorage.getItem('journal_entries__' + cat.name.toLowerCase()) || '{}');
+            const all = JSON.parse(Storage.getItem('journal_entries__' + cat.name.toLowerCase()) || '{}');
             const entries = all[getDateKey(viewDate)] || [];
             hasNote = entries.some(e => e.topic || e.notes);
         }
         else if (cat.name === 'Mindset') {
-            const all = JSON.parse(localStorage.getItem('mindset_notes') || '{}');
+            const all = JSON.parse(Storage.getItem('mindset_notes') || '{}');
             const datePrefix = getDateKey(viewDate) + '__';
             hasNote = Object.keys(all).some(k => k.startsWith(datePrefix) && all[k].trim() !== '');
         }
         else if (cat.name === 'Mobility') {
             const datePrefix = getDateKey(viewDate) + '__';
 
-            const logs = JSON.parse(localStorage.getItem('exercise_logs') || '{}');
+            const logs = JSON.parse(Storage.getItem('exercise_logs') || '{}');
             const hasLifts = Object.keys(logs).some(k =>
                 k.startsWith(datePrefix) && logs[k].some(s => s.weight || s.reps)
             );
 
-            const simpleNotes = JSON.parse(localStorage.getItem('mobility_simple_notes') || '{}');
+            const simpleNotes = JSON.parse(Storage.getItem('mobility_simple_notes') || '{}');
             const hasSimple = Object.keys(simpleNotes).some(k =>
                 k.startsWith(datePrefix) && simpleNotes[k].trim() !== ''
             );
@@ -346,7 +405,8 @@ document.getElementById('nextDay').addEventListener('click', () => {
 });
 
 
-loadDayData();
+// Bootstrap: fetch bin data, then initialise the UI
+_loadFromJsonBin().then(() => loadDayData());
 
 
 function drawWedges() {
@@ -555,11 +615,11 @@ let activeExercise = null;
 
 
 function getMasterLibrary() {
-    const raw = localStorage.getItem(EXERCISE_LIBRARY_KEY);
+    const raw = Storage.getItem(EXERCISE_LIBRARY_KEY);
     return raw ? JSON.parse(raw) : {};
 }
 function saveMasterLibrary(lib) {
-    localStorage.setItem(EXERCISE_LIBRARY_KEY, JSON.stringify(lib));
+    Storage.setItem(EXERCISE_LIBRARY_KEY, JSON.stringify(lib));
 }
 
 
@@ -568,25 +628,25 @@ function getDayLibraryKey(date) {
 }
 function getExerciseLibrary() {
     const dayKey = getDayLibraryKey(viewDate);
-    const dayRaw = localStorage.getItem(dayKey);
+    const dayRaw = Storage.getItem(dayKey);
     if (dayRaw) {
         return JSON.parse(dayRaw);
     }
 
     const master = getMasterLibrary();
-    localStorage.setItem(dayKey, JSON.stringify(master));
+    Storage.setItem(dayKey, JSON.stringify(master));
     return master;
 }
 function saveExerciseLibrary(lib) {
 
-    localStorage.setItem(getDayLibraryKey(viewDate), JSON.stringify(lib));
+    Storage.setItem(getDayLibraryKey(viewDate), JSON.stringify(lib));
 }
 function getExerciseLogs() {
-    const raw = localStorage.getItem(EXERCISE_LOGS_KEY);
+    const raw = Storage.getItem(EXERCISE_LOGS_KEY);
     return raw ? JSON.parse(raw) : {};
 }
 function saveExerciseLogs(logs) {
-    localStorage.setItem(EXERCISE_LOGS_KEY, JSON.stringify(logs));
+    Storage.setItem(EXERCISE_LOGS_KEY, JSON.stringify(logs));
 }
 function getDayLogKey(muscle, exercise) {
     return `${getDateKey(viewDate)}__${muscle}__${exercise}`;
@@ -603,11 +663,11 @@ const MOBILITY_EXTRAS = ['Yoga', 'Posture'];
 const MOBILITY_SIMPLE_KEY = 'mobility_simple_notes';
 
 function getMobilitySimpleNotes() {
-    const raw = localStorage.getItem(MOBILITY_SIMPLE_KEY);
+    const raw = Storage.getItem(MOBILITY_SIMPLE_KEY);
     return raw ? JSON.parse(raw) : {};
 }
 function saveMobilitySimpleNotes(notes) {
-    localStorage.setItem(MOBILITY_SIMPLE_KEY, JSON.stringify(notes));
+    Storage.setItem(MOBILITY_SIMPLE_KEY, JSON.stringify(notes));
 }
 function getMobilitySimpleKey(type) {
     return getDateKey(viewDate) + '__' + type;
@@ -926,16 +986,16 @@ window.addEventListener('keydown', (e) => {
 let activeEntryId = null;
 
 function getSpiritualEntries() {
-    const raw = localStorage.getItem(SPIRITUAL_KEY);
+    const raw = Storage.getItem(SPIRITUAL_KEY);
     const all = raw ? JSON.parse(raw) : {};
     return all[getDateKey(viewDate)] || [];
 }
 
 function saveSpiritualEntries(entries) {
-    const raw = localStorage.getItem(SPIRITUAL_KEY);
+    const raw = Storage.getItem(SPIRITUAL_KEY);
     const all = raw ? JSON.parse(raw) : {};
     all[getDateKey(viewDate)] = entries;
-    localStorage.setItem(SPIRITUAL_KEY, JSON.stringify(all));
+    Storage.setItem(SPIRITUAL_KEY, JSON.stringify(all));
 }
 
 function openSpiritualModal() {
@@ -1038,15 +1098,15 @@ let activeJournalType = null;
 let activeJournalEntryId = null;
 
 function getJournalEntries(type) {
-    const raw = localStorage.getItem(JOURNAL_CONFIGS[type].key);
+    const raw = Storage.getItem(JOURNAL_CONFIGS[type].key);
     const all = raw ? JSON.parse(raw) : {};
     return all[getDateKey(viewDate)] || [];
 }
 function saveJournalEntries(type, entries) {
-    const raw = localStorage.getItem(JOURNAL_CONFIGS[type].key);
+    const raw = Storage.getItem(JOURNAL_CONFIGS[type].key);
     const all = raw ? JSON.parse(raw) : {};
     all[getDateKey(viewDate)] = entries;
-    localStorage.setItem(JOURNAL_CONFIGS[type].key, JSON.stringify(all));
+    Storage.setItem(JOURNAL_CONFIGS[type].key, JSON.stringify(all));
 }
 
 function openJournalModal(type) {
@@ -1157,18 +1217,18 @@ let activeMindsetType = null;
 let activeBook = null;
 
 function getMindsetLibraryForType(type) {
-    const raw = localStorage.getItem('mindset_library__' + type);
+    const raw = Storage.getItem('mindset_library__' + type);
     return raw ? JSON.parse(raw) : [];
 }
 function saveMindsetLibraryForType(type, lib) {
-    localStorage.setItem('mindset_library__' + type, JSON.stringify(lib));
+    Storage.setItem('mindset_library__' + type, JSON.stringify(lib));
 }
 function getMindsetNotes() {
-    const raw = localStorage.getItem(MINDSET_NOTES_KEY);
+    const raw = Storage.getItem(MINDSET_NOTES_KEY);
     return raw ? JSON.parse(raw) : {};
 }
 function saveMindsetNotes(notes) {
-    localStorage.setItem(MINDSET_NOTES_KEY, JSON.stringify(notes));
+    Storage.setItem(MINDSET_NOTES_KEY, JSON.stringify(notes));
 }
 function getMindsetNoteKey(type, item) {
     return getDateKey(viewDate) + '__' + type + '__' + item;
@@ -1278,7 +1338,7 @@ const AVOIDED_ENTRIES_KEY = 'avoided_entries';
 let activeAvoidedActivity = null;
 
 function getAvoidedEntries() {
-    try { return JSON.parse(localStorage.getItem(AVOIDED_ENTRIES_KEY)) || {}; }
+    try { return JSON.parse(Storage.getItem(AVOIDED_ENTRIES_KEY)) || {}; }
     catch(e) { return {}; }
 }
 
@@ -1318,7 +1378,7 @@ document.getElementById('avoidedSaveBtn').addEventListener('click', function() {
         avoidedToday = avoidedToday.filter(a => a !== activeAvoidedActivity);
     }
 
-    localStorage.setItem(AVOIDED_ENTRIES_KEY, JSON.stringify(all));
+    Storage.setItem(AVOIDED_ENTRIES_KEY, JSON.stringify(all));
     saveDayData();
     renderAvoidedButtons();
     closeAvoidedModal();
@@ -1360,7 +1420,7 @@ window.addEventListener('keydown', (e) => {
 const GRATITUDE_KEY = 'gratitude_entries';
 
 function getGratitudeEntries() {
-    try { return JSON.parse(localStorage.getItem(GRATITUDE_KEY)) || {}; }
+    try { return JSON.parse(Storage.getItem(GRATITUDE_KEY)) || {}; }
     catch(e) { return {}; }
 }
 
@@ -1379,7 +1439,7 @@ document.getElementById('gratitudeSaveBtn').addEventListener('click', function()
     entries[getDateKey(viewDate)] = [1,2,3,4,5].map(i =>
         document.getElementById('grateful' + i).value.trim()
     );
-    localStorage.setItem(GRATITUDE_KEY, JSON.stringify(entries));
+    Storage.setItem(GRATITUDE_KEY, JSON.stringify(entries));
     document.getElementById('gratitudeModal').style.display = 'none';
 });
 
