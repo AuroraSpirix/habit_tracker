@@ -1,0 +1,410 @@
+:root {
+    --bg-color: #000000;
+    --container-bg: #000000;
+    --text-color: #ffffff;
+    --line-color: #444444; /* Subtle dark grey for grid */
+    --accent-color: #ffffff; /* Handles and Main Polygon Border */
+    --poly-fill: rgba(255, 255, 255, 0.2); /* The transparent center */
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    /* This keeps your gap at the top but ensures it's part of the 100vh */
+    padding: 60px 20px; 
+    
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Inter', -apple-system, sans-serif;
+    
+    display: flex;
+    justify-content: center; 
+    
+    /* 2. Hard lock the height and hide scrollbars */
+    height: 100vh; 
+    overflow: hidden; 
+}
+
+.chart-container {
+    background: var(--container-bg);
+    padding: 2rem;
+    text-align: center;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+h1 {
+    letter-spacing: 0.3rem;
+    font-weight: 300;
+    margin-bottom: 0;
+}
+
+p {
+    color: #666;
+    font-size: 0.8rem;
+    margin-bottom: 2rem;
+}
+
+svg {
+    width: 100%;
+    max-width: 400px;
+    overflow: visible;
+}
+
+/* Polygon Styles */
+.polygon-fill {
+    fill: var(--poly-fill);
+    stroke: var(--accent-color);
+    stroke-width: 2;
+}
+
+/* Grid & Labels */
+.grid-line {
+    stroke: var(--line-color);
+    stroke-width: 1;
+}
+
+.axis-label {
+    font-size: 14px; /* Increased from 12px */
+    fill: #fff;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    pointer-events: all !important;
+    transition: all 0.2s ease;
+}
+
+.axis-label.has-note {
+    fill: rgba(46, 204, 113, 1); /* Using full opacity for text readability */
+    font-weight: 700;
+    filter: drop-shadow(0px 0px 5px rgba(46, 204, 113, 0.3));
+}
+
+/* Draggable Handles */
+.handle {
+    fill: var(--accent-color);
+    pointer-events: none; /* Let the click pass through to the hitbox */
+}
+
+.handle:active {
+    cursor: grabbing;
+}
+
+.handle-hitbox {
+    fill: transparent;
+    cursor: grab;
+    pointer-events: all;
+}
+
+.handle-hitbox:active {
+    cursor: grabbing;
+}
+
+#stats-display {
+    display: none;
+}
+
+.app-container {
+    width: 100%;
+    max-width: 600px;
+}
+
+.nav-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 0 20px;
+    gap: 0px;
+}
+
+.nav-bar button {
+    background: none;         /* Solid black background like the image */
+    border: none; /* Thin white border */
+    border-radius: 50px;         /* Maximum roundness for the pill shape */
+    padding: 0px 20px;           /* Wide horizontal padding to match the image */
+    color: white;
+    padding: 0px 15px 5px 15px;
+    
+    /* These lines keep your arrows "fat" inside the new box */
+    font-size: 1.3rem;          
+    font-weight: 900;           
+    
+/* --- CENTERING LOGIC --- */
+    display: flex;               /* Uses flexbox for centering */
+    align-items: center;         /* Vertically centers the arrow */
+    justify-content: center;      /* Horizontally centers the arrow */
+    line-height: 1;
+    cursor: pointer;
+    transition: 0.2s ease;      
+}
+
+.nav-bar button:hover {
+    border-color: #fff;       /* Changes the border to your theme's green on hover */
+    color: #fff;            /* Makes the arrow turn green too */
+}
+
+#date-display {
+    width: 180px;      /* This fixed width keeps the arrows perfectly still */
+    text-align: center;
+    flex-shrink: 0;    /* Prevents the container from resizing on small screens */
+}
+
+#day-name {
+    display: block;
+    font-size: 1.2rem;
+    font-weight: 300;
+    letter-spacing: 2px;
+}
+
+#full-date {
+    color: #666;
+    font-size: 0.7rem;
+}
+
+button {
+    background: transparent;
+    border: 1px solid #333;
+    color: white;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: 0.3s;
+}
+
+button:hover {
+    background: #222;
+    border-color: #666;
+}
+
+/* --- MODAL BASE --- */
+.modal {
+    display: none; 
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Base styles for the white boxes */
+.modal-content {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 20px;
+    width: 90%;
+    text-align: center;
+}
+
+/* 1. CALENDAR MODAL (Small & Tight) */
+#calendarModal .modal-content {
+    max-width: 340px; 
+    padding: 20px;
+}
+
+/* 2. NOTES MODAL (Wide & Tall) */
+#noteModal .modal-content {
+    max-width: 500px;
+    padding: 30px 30px 30px 30px; /* Tight top padding */
+}
+
+/* --- CALENDAR INTERNALS --- */
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.day-headers {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-align: center;
+}
+
+#closeModal {
+    margin-top: 5px; /* Pull the button up */
+}
+
+.day-headers div {
+    padding-bottom: 5px;
+    border-bottom: 1px solid #222;
+}
+
+.day-box.other-month {
+    color: #333; /* Very dim grey */
+    background: transparent;
+    border: 1px solid #222; /* Faint outline to show the grid */
+    cursor: default;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    margin-bottom: 10px; /* Reduced margin */
+    min-height: auto; /* Remove the old min-height */
+}
+
+.day-box {
+    aspect-ratio: 1;
+    background: #222;
+    border: 1px solid #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.day-box:hover { background: #444; }
+.day-box.current { border-color: var(--accent-color); color: var(--accent-color); font-weight: bold; }
+.day-box.empty { background: transparent; border: none; cursor: default; }
+
+/* --- NOTES INTERNALS --- */
+#noteTitle {
+    margin-top: 0; /* Removes top gap */
+    margin-bottom: 20px;
+    font-size: 1.2rem;
+    letter-spacing: 2px;
+    color: white;
+}
+
+#noteArea {
+    width: 100%;
+    height: 250px; /* Bigger box */
+    background: #000;
+    border: 1px solid #333;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1.5;
+    resize: none;
+    margin-bottom: 20px;
+}
+
+#noteArea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+#saveNote {
+    background: white;
+    color: black;
+    width: 100%;
+    padding: 12px;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+
+    transition: all 0.2s ease;
+}
+
+#saveNote:hover {
+    color: #2ecc71;
+    text-shadow: 0 0 1px rgba(46, 204, 113, 0.5);
+    transform: translateY(-2px);
+}
+
+/* --- DISMISS BUTTONS (Grouped Hover) --- */
+#closeModal,
+#closeNoteModal {
+    background: none;
+    border: none;
+    color: #666;
+    letter-spacing: 2px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    width: auto;
+    transition: color 0.2s ease;
+    margin-top: 15px;
+    display: inline-block;
+}
+
+#closeModal:hover, 
+#closeNoteModal:hover {
+    color: #ffffff;
+}
+
+/* --- LABEL CLICKS --- */
+.axis-label {
+    cursor: pointer;
+    pointer-events: all !important;
+    transition: fill 0.2s;
+}
+
+.axis-label:hover {
+    fill: #fff;
+}
+
+#full-date { cursor: pointer; transition: 0.2s; }
+#full-date:hover { color: var(--accent-color); }
+
+.value-label {
+    fill: #ffffff;
+    font-size: 12px;
+    font-weight: bold;
+    pointer-events: none; /* So you can click 'through' the number to the dot */
+    text-shadow: 0 0 5px rgba(0,0,0,0.8); /* Makes numbers pop against the polygon */
+}
+
+.avoided-section {
+    margin-top: 30px;
+    padding: 0 20px;
+    text-align: center;
+}
+
+.avoided-section h3 {
+    font-size: 0.8rem;
+    letter-spacing: 3px;
+    color: #fff;
+    margin-bottom: 15px;
+}
+
+#avoided-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+}
+
+.avoid-btn {
+    background: transparent;
+    border: 1px solid #333;
+    color: #fff;
+    padding: 8px 16px;
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+/* Style for when the activity is successfully avoided */
+.avoid-btn.active {
+    background: rgba(231, 76, 60, 0.1); /* Subtle red tint */
+    border-color: #e74c3c;
+    color: #e74c3c;
+    font-weight: bold;
+    box-shadow: 0 0 10px rgba(231, 76, 60, 0.2);
+}
+
+.avoid-btn:hover {
+    border-color: #fff;
+}
