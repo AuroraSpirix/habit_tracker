@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Habit Tracker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Self-Improvement Radar</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" type="image/x-icon" href="icon2.png">
+    <link rel="icon" type="image/x-icon" href="favicon.png">
 </head>
 <body>
 
@@ -18,47 +21,232 @@
             </div>
             <button id="nextDay">&rarr;</button>
         </div>
-        <br>
-        <br>
+        <br><br>
         <div class="chart-container">
             <svg id="radarChart" viewBox="0 0 400 400"></svg>
-            
             <div id="stats-display"></div>
         </div>
         <div class="avoided-section">
             <br>
-    <div id="avoided-buttons"></div>
+            <div id="avoided-buttons"></div>
+        </div>
     </div>
+
+    <div id="exerciseModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <div id="ex-screen-muscles" class="ex-screen">
+                <h3 class="ex-title">MOBILITY</h3>
+                <div id="muscle-grid" class="muscle-grid"></div>
+                <div class="muscle-divider"></div>
+                <div id="mobility-extras" class="muscle-grid mobility-extras"></div>
+                <button class="ex-close-btn" id="closeExerciseModal">CLOSE</button>
+            </div>
+            <div id="ex-screen-exercises" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="exBackToMuscles">&#8592; BACK</button>
+                    <h3 class="ex-title" id="ex-muscle-title">CHEST</h3>
+                </div>
+                <div id="exercise-list" class="exercise-list"></div>
+                <div class="ex-add-row">
+                    <input id="newExerciseInput" type="text" placeholder="Add exercise..." class="ex-input"/>
+                    <button id="addExerciseBtn" class="ex-add-btn">+</button>
+                </div>
+                <button class="ex-close-btn" id="closeExerciseModal2">CLOSE</button>
+            </div>
+            <div id="ex-screen-sets" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="exBackToExercises">&#8592; BACK</button>
+                    <h3 class="ex-title" id="ex-exercise-title">BENCH PRESS</h3>
+                </div>
+                <div id="sets-list" class="sets-list"></div>
+                <button id="saveSetsBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeExerciseModal3">CLOSE</button>
+            </div>
+            <div id="ex-screen-simple" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="exBackToMusclesSimple">&#8592; BACK</button>
+                    <h3 class="ex-title" id="ex-simple-title">YOGA</h3>
+                </div>
+                <textarea id="exSimpleNotes" placeholder="What did you do today?" class="sp-notes-input simple-notes"></textarea>
+                <button id="exSimpleSaveBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeExerciseModal4">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="spiritualModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <div id="sp-screen-list" class="ex-screen">
+                <h3 class="ex-title">SPIRITUALITY</h3>
+                <div id="sp-entry-list" class="exercise-list"></div>
+                <button id="spAddEntryBtn" class="ex-save-btn modal-add-btn">+ NEW ENTRY</button>
+                <button class="ex-close-btn" id="closeSpiritualModal">CLOSE</button>
+            </div>
+            <div id="sp-screen-editor" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="spBackToList">&#8592; BACK</button>
+                    <h3 class="ex-title">ENTRY</h3>
+                </div>
+                <input id="spTopicInput" type="text" placeholder="Topic of study..." class="ex-input full-width modal-input"/>
+                <textarea id="spNotesInput" placeholder="Notes..." class="sp-notes-input"></textarea>
+                <button id="spSaveEntryBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeSpiritualModal2">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mindfulnessModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <div id="mf-screen-list" class="ex-screen">
+                <h3 class="ex-title">MINDFULNESS</h3>
+                <div id="mf-entry-list" class="exercise-list"></div>
+                <button id="mfAddEntryBtn" class="ex-save-btn modal-add-btn">+ NEW ENTRY</button>
+                <button class="ex-close-btn" id="closeMindfulnessModal">CLOSE</button>
+            </div>
+            <div id="mf-screen-editor" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="mfBackToList">&#8592; BACK</button>
+                    <h3 class="ex-title">ENTRY</h3>
+                </div>
+                <input id="mfTopicInput" type="text" placeholder="Topic..." class="ex-input full-width modal-input"/>
+                <textarea id="mfNotesInput" placeholder="Notes..." class="sp-notes-input"></textarea>
+                <button id="mfSaveEntryBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeMindfulnessModal2">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="recoveryModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <div id="rc-screen-list" class="ex-screen">
+                <h3 class="ex-title">RECOVERY</h3>
+                <div id="rc-entry-list" class="exercise-list"></div>
+                <button id="rcAddEntryBtn" class="ex-save-btn modal-add-btn">+ NEW ENTRY</button>
+                <button class="ex-close-btn" id="closeRecoveryModal">CLOSE</button>
+            </div>
+            <div id="rc-screen-editor" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="rcBackToList">&#8592; BACK</button>
+                    <h3 class="ex-title">ENTRY</h3>
+                </div>
+                <input id="rcTopicInput" type="text" placeholder="Topic..." class="ex-input full-width modal-input"/>
+                <textarea id="rcNotesInput" placeholder="Notes..." class="sp-notes-input"></textarea>
+                <button id="rcSaveEntryBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeRecoveryModal2">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="reflectionModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <div id="rf-screen-list" class="ex-screen">
+                <h3 class="ex-title">REFLECTION</h3>
+                <div id="rf-entry-list" class="exercise-list"></div>
+                <button id="rfAddEntryBtn" class="ex-save-btn modal-add-btn">+ NEW ENTRY</button>
+                <button class="ex-close-btn" id="closeReflectionModal">CLOSE</button>
+            </div>
+            <div id="rf-screen-editor" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="rfBackToList">&#8592; BACK</button>
+                    <h3 class="ex-title">ENTRY</h3>
+                </div>
+                <input id="rfTopicInput" type="text" placeholder="Topic..." class="ex-input full-width modal-input"/>
+                <textarea id="rfNotesInput" placeholder="Notes..." class="sp-notes-input"></textarea>
+                <button id="rfSaveEntryBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeReflectionModal2">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mindsetModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <div id="ms-screen-type" class="ex-screen">
+                <h3 class="ex-title">MINDSET</h3>
+                <div class="muscle-grid mindset-type-grid">
+                    <button class="muscle-btn" onclick="openMindsetType('book')">BOOK</button>
+                    <button class="muscle-btn" onclick="openMindsetType('video')">VIDEO</button>
+                    <button class="muscle-btn" onclick="openMindsetType('podcast')">PODCAST</button>
+                    <button class="muscle-btn" onclick="openMindsetType('conversation')">CONVERSATION</button>
+                </div>
+                <button class="ex-close-btn" id="closeMindsetModal">CLOSE</button>
+            </div>
+            <div id="ms-screen-books" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="msBackToType">&#8592; BACK</button>
+                    <h3 class="ex-title" id="ms-type-title">BOOKS</h3>
+                </div>
+                <div id="ms-book-list" class="exercise-list"></div>
+                <div class="ex-add-row modal-add-btn">
+                    <input id="newBookInput" type="text" placeholder="Add title..." class="ex-input"/>
+                    <button id="addBookBtn" class="ex-add-btn">+</button>
+                </div>
+                <button class="ex-close-btn" id="closeMindsetModal2">CLOSE</button>
+            </div>
+            <div id="ms-screen-notes" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="msBackToBooks">&#8592; BACK</button>
+                    <h3 class="ex-title" id="ms-book-title">TITLE</h3>
+                </div>
+                <textarea id="msBookNotes" placeholder="Notes..." class="sp-notes-input mindset-notes"></textarea>
+                <button id="msSaveNotesBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeMindsetModal3">CLOSE</button>
+            </div>
+        </div>
     </div>
 
     <div id="noteModal" class="modal">
-    <div class="modal-content">
-        <h3 id="noteTitle">Category Note</h3>
-        <textarea id="noteArea" placeholder="What did you do today?"></textarea>
-        <div class="modal-actions">
-            <button id="saveNote">SAVE NOTE</button>
-            <button id="closeNoteModal">CANCEL</button>
+        <div class="modal-content">
+            <h3 id="noteTitle">Category Note</h3>
+            <textarea id="noteArea" placeholder="What did you do today?"></textarea>
+            <div class="modal-actions">
+                <button id="saveNote">SAVE NOTE</button>
+                <button id="closeNoteModal">CANCEL</button>
+            </div>
         </div>
-    </div>
     </div>
 
     <div id="calendarModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <button id="prevMonth">&larr;</button>
-            <h3 id="monthYearLabel">Month Year</h3>
-            <button id="nextMonth">&rarr;</button>
-        </div>
-
-        <div class="day-headers">
-            <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
-        </div>
-
-        <div id="calendarGrid" class="calendar-grid">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button id="prevMonth">&larr;</button>
+                <h3 id="monthYearLabel">Month Year</h3>
+                <button id="nextMonth">&rarr;</button>
             </div>
-        
-        <button id="closeModal">CLOSE</button>
+            <div class="day-headers">
+                <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+            </div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+            <button id="closeModal">CLOSE</button>
+        </div>
     </div>
+
+    <div id="avoidedModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <h3 class="ex-title" id="avoidedModalTitle"></h3>
+            <div class="avoided-fields">
+                <div class="field-label">WHAT HAPPENED?</div>
+                <textarea id="avoidedWhatHappened" class="sp-notes-input avoided-textarea"></textarea>
+                <div class="field-label field-label-gap">WHAT DID YOU LEARN?</div>
+                <textarea id="avoidedWhatLearned" class="sp-notes-input avoided-textarea"></textarea>
+            </div>
+            <button id="avoidedSaveBtn" class="ex-save-btn avoided-save-btn">SAVE</button>
+            <button id="closeAvoidedModal" class="ex-close-btn">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="gratitudeModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <h3 class="ex-title">What made you happy today?</h3>
+            <div class="gratitude-fields">
+                <input id="grateful1" type="text" class="ex-input full-width gratitude-input" placeholder="1."/>
+                <input id="grateful2" type="text" class="ex-input full-width gratitude-input" placeholder="2."/>
+                <input id="grateful3" type="text" class="ex-input full-width gratitude-input" placeholder="3."/>
+                <input id="grateful4" type="text" class="ex-input full-width gratitude-input" placeholder="4."/>
+                <input id="grateful5" type="text" class="ex-input full-width gratitude-input" placeholder="5."/>
+            </div>
+            <button id="gratitudeSaveBtn" class="ex-save-btn gratitude-save-btn">SAVE</button>
+            <button id="closeGratitudeModal" class="ex-close-btn">CLOSE</button>
+        </div>
     </div>
 
     <script src="script.js"></script>
