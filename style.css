@@ -16,8 +16,8 @@
     --red:           #e05252;
     --red-dim:       rgba(224,82,82,0.12);
     --text:          #f0ece4;
-    --text-muted:    rgba(240,236,228,0.35);
-    --text-faint:    rgba(240,236,228,0.15);
+    --text-muted:    rgba(240,236,228,0.70);
+    --text-faint:    rgba(240,236,228,0.42);
     --poly-fill:     rgba(201,169,110,0.06);
     --poly-stroke:   rgba(201,169,110,0.7);
     --radius-sm:     8px;
@@ -159,6 +159,7 @@ svg {
     max-width: 380px;
     overflow: visible;
     filter: drop-shadow(0 0 40px rgba(201,169,110,0.04));
+    touch-action: none;
 }
 
 .polygon-fill {
@@ -175,7 +176,7 @@ svg {
 
 .axis-label {
     font-size: 10px;
-    fill: var(--text-muted);
+    fill: rgba(240,236,228,0.70);
     font-family: 'DM Mono', monospace;
     font-weight: 400;
     letter-spacing: 0.18em;
@@ -185,7 +186,7 @@ svg {
     text-transform: uppercase;
 }
 
-.axis-label:hover { fill: var(--text); }
+.axis-label:hover { fill: #f0ece4; }
 
 .axis-label.has-note {
     fill: var(--green);
@@ -210,7 +211,7 @@ svg {
 .handle-hitbox:active { cursor: grabbing; }
 
 .value-label {
-    fill: rgba(201,169,110,0.75);
+    fill: rgba(201,169,110,0.85);
     font-size: 9px;
     font-family: 'DM Mono', monospace;
     font-weight: 500;

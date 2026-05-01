@@ -207,7 +207,7 @@ function render() {
 
         const hitbox = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         hitbox.setAttribute("cx", p.x); hitbox.setAttribute("cy", p.y);
-        hitbox.setAttribute("r", 25); hitbox.setAttribute("class", "handle-hitbox");
+        hitbox.setAttribute("r", 36); hitbox.setAttribute("class", "handle-hitbox");
 
         const visualDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         visualDot.setAttribute("cx", p.x); visualDot.setAttribute("cy", p.y);
@@ -270,21 +270,36 @@ window.addEventListener('keydown', (e) => {
 
 function startDrag(e, index) {
     e.preventDefault();
-    isDragging = true;
+    e.stopPropagation();
+    isDragging = false; // will become true on first move
     currentHandleIdx = index;
+    _dragStartX = e.touches ? e.touches[0].clientX : e.clientX;
+    _dragStartY = e.touches ? e.touches[0].clientY : e.clientY;
+    _dragMoved = false;
     document.body.style.cursor = 'grabbing';
-    window.addEventListener('mousemove', drag);
+    window.addEventListener('mousemove', drag, {passive: false});
     window.addEventListener('mouseup', stopDrag);
     window.addEventListener('touchmove', drag, {passive: false});
     window.addEventListener('touchend', stopDrag);
 }
 
+let _dragStartX = 0, _dragStartY = 0, _dragMoved = false;
+
 function drag(e) {
-    if (!isDragging || currentHandleIdx === null) return;
-    const rect = svg.getBoundingClientRect();
+    if (currentHandleIdx === null) return;
+    e.preventDefault();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
+    // Only start dragging after a small movement threshold (avoids misfire on tap)
+    if (!_dragMoved) {
+        const dist = Math.sqrt(Math.pow(clientX - _dragStartX, 2) + Math.pow(clientY - _dragStartY, 2));
+        if (dist < 4) return;
+        _dragMoved = true;
+        isDragging = true;
+    }
+
+    const rect = svg.getBoundingClientRect();
     const svgX = ((clientX - rect.left) / rect.width) * 400;
     const svgY = ((clientY - rect.top) / rect.height) * 400;
 
@@ -301,12 +316,22 @@ function drag(e) {
     saveDayData();
 }
 
-function stopDrag() {
+function stopDrag(e) {
+    // If barely moved, treat as a tap → increment value (wraps 0→10→0)
+    if (!_dragMoved && currentHandleIdx !== null) {
+        const cat = categories[currentHandleIdx];
+        cat.value = cat.value >= maxValue ? 0 : cat.value + 1;
+        render();
+        saveDayData();
+    }
     isDragging = false;
+    _dragMoved = false;
     currentHandleIdx = null;
     document.body.style.cursor = 'default';
     window.removeEventListener('mousemove', drag);
+    window.removeEventListener('mouseup', stopDrag);
     window.removeEventListener('touchmove', drag);
+    window.removeEventListener('touchend', stopDrag);
 }
 
 
