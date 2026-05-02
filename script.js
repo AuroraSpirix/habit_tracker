@@ -7,7 +7,7 @@ const JSONBIN_URL = 'https://api.jsonbin.io/v3/b/69f53af2856a6821899747a5';
 
 const JSONBIN_HEADERS = {
   'Content-Type': 'application/json',
-  'X-Access-Key': '$2a$10$3y.dwt/3tzWk3GSu3tXtDeFKHKk25l68iLnGPUjauJA8zdcHfmMji'
+  'X-Master-Key': '$2a$10$3y.dwt/3tzWk3GSu3tXtDeFKHKk25l68iLnGPUjauJA8zdcHfmMji'
 };
 
 let _cache = {};          // in-memory mirror of the bin
