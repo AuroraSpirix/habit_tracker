@@ -32,13 +32,18 @@ function _scheduleSave() {
     _saveTimer = setTimeout(() => {
         _saveTimer = null;
         _flushToJsonBin();
-    }, 60000); // save at most once per minute
+    }, 10000); // save 10 seconds after the first change
 }
 
-// Also save immediately when the user closes/leaves the page
-window.addEventListener('beforeunload', () => {
-    clearTimeout(_saveTimer);
-    _flushToJsonBin();
+// Save immediately when the user closes/leaves the page
+// sendBeacon is more reliable than fetch in beforeunload
+window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+        clearTimeout(_saveTimer);
+        _saveTimer = null;
+        const blob = new Blob([JSON.stringify(_cache)], { type: 'application/json' });
+        navigator.sendBeacon(JSONBIN_URL, blob);
+    }
 });
 
 async function _flushToJsonBin() {
