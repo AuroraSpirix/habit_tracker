@@ -95,7 +95,7 @@ const defaultValues = [
     { name: 'Mindfulness', value: 5, note: '' }
 ];
 
-const avoidedActivitiesList = ['Lusted', 'Angered', 'Avoided', 'Neglected', 'Doubted'];
+const avoidedActivitiesList = ['Pride', 'Greed', 'Lust', 'Envy', 'Gluttony', 'Wrath', 'Sloth'];
 let avoidedToday = [];
 
 
