@@ -77,6 +77,7 @@ body::before {
     margin-bottom: 8px;
     gap: 0;
     width: 100%;
+    padding-bottom: 50;
 }
 
 .nav-bar button {
@@ -222,9 +223,9 @@ svg {
 #stats-display { display: none; }
 
 .avoided-section {
-    margin-top: 4px;
+    margin-top: 40px;
     padding: 0 8px;
-    text-align: center;
+    text-align: center; /*here*/
     width: 100%;
 }
 
@@ -786,8 +787,8 @@ button:hover {
 .set-col-label {
     font-size: 0.52rem;
     letter-spacing: 0.2em;
-    color: var(--text-faint);
-    width: 105px;
+    color: var(--text-faint); /*here*/
+    width: 94px;
     margin-left: 47px;
     text-align: left;
     flex-shrink: 0;
