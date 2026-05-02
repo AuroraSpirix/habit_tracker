@@ -240,9 +240,11 @@ svg {
 
 #avoided-buttons {
     display: flex;
+    max-width: 300px;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 8px;
+    gap: 10px;
+    margin: 0 auto
 }
 
 .avoid-btn {
