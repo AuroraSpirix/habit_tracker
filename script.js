@@ -419,8 +419,8 @@ document.getElementById('nextDay').addEventListener('click', () => {
 });
 
 
-// Bootstrap: fetch bin data, then initialise the UI
-_loadFromJsonBin().then(() => loadDayData());
+loadDayData();                              // render immediately with defaults
+_loadFromJsonBin().then(() => loadDayData()); // re-render once remote data arrives
 
 
 function drawWedges() {
