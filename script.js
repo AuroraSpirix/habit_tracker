@@ -87,16 +87,37 @@ let categories = [];
 let isDragging = false;
 let currentHandleIdx = null;
 const defaultValues = [
-    { name: 'Spirituality', value: 5, note: '' },
-    { name: 'Mobility', value: 5, note: '' },
-    { name: 'Mindset', value: 5, note: '' },
-    { name: 'Reflection', value: 5, note: '' },
-    { name: 'Recovery', value: 5, note: '' },
-    { name: 'Mindfulness', value: 5, note: '' }
+    { name: 'Spirituality', value: 2, note: '' },
+    { name: 'Mobility', value: 2, note: '' },
+    { name: 'Mindset', value: 2, note: '' },
+    { name: 'Reflection', value: 2, note: '' },
+    { name: 'Recovery', value: 2, note: '' },
+    { name: 'Mindfulness', value: 2, note: '' }
 ];
 
 const avoidedActivitiesList = ['Pride', 'Greed', 'Lust', 'Envy', 'Gluttony', 'Wrath', 'Sloth'];
-let avoidedToday = [];
+let avoidedToday = []; // legacy — kept so old saved data still loads cleanly
+const SIN_LEVELS_KEY = 'sin_levels';
+
+function getAllSinLevels() {
+    try { return JSON.parse(Storage.getItem(SIN_LEVELS_KEY)) || {}; }
+    catch(e) { return {}; }
+}
+function getSinLevelsForDay() {
+    return getAllSinLevels()[getDateKey(viewDate)] || {};
+}
+function setSinLevel(activity, value) {
+    const all = getAllSinLevels();
+    const dayKey = getDateKey(viewDate);
+    if (!all[dayKey]) all[dayKey] = {};
+    if (value === 0) {
+        delete all[dayKey][activity];
+        if (Object.keys(all[dayKey]).length === 0) delete all[dayKey];
+    } else {
+        all[dayKey][activity] = value;
+    }
+    Storage.setItem(SIN_LEVELS_KEY, JSON.stringify(all));
+}
 
 
 function getDateKey(date) {
@@ -104,6 +125,106 @@ function getDateKey(date) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+// Returns true if a category has any data saved for the current viewDate
+function isCategoryCompleted(catName) {
+    if (catName === 'Spirituality') {
+        const all = JSON.parse(Storage.getItem(SPIRITUAL_KEY) || '{}');
+        const entries = all[getDateKey(viewDate)] || [];
+        return entries.some(e => e.topic || e.notes);
+    }
+    if (['Mindfulness', 'Recovery', 'Reflection'].includes(catName)) {
+        const all = JSON.parse(Storage.getItem('journal_entries__' + catName.toLowerCase()) || '{}');
+        const entries = all[getDateKey(viewDate)] || [];
+        return entries.some(e => e.topic || e.notes);
+    }
+    if (catName === 'Mindset') {
+        const all = JSON.parse(Storage.getItem('mindset_notes') || '{}');
+        const datePrefix = getDateKey(viewDate) + '__';
+        return Object.keys(all).some(k => k.startsWith(datePrefix) && all[k].trim() !== '');
+    }
+    if (catName === 'Mobility') {
+        const datePrefix = getDateKey(viewDate) + '__';
+        // Sets count as completion if any set is checked off (workout actually done today)
+        const checks = JSON.parse(Storage.getItem('exercise_set_checks') || '{}');
+        const hasChecks = Object.keys(checks).some(k =>
+            k.startsWith(datePrefix) && (checks[k] || []).some(Boolean)
+        );
+        const simpleNotes = JSON.parse(Storage.getItem('mobility_simple_notes') || '{}');
+        const hasSimple = Object.keys(simpleNotes).some(k =>
+            k.startsWith(datePrefix) && simpleNotes[k].trim() !== ''
+        );
+        return hasChecks || hasSimple;
+    }
+    return false;
+}
+
+// Auto-bump completed categories that are still at the untouched default → 5.
+// Returns true if any category changed (so we know to save).
+function applyAutoBump() {
+    let changed = false;
+    categories.forEach(cat => {
+        if (isCategoryCompleted(cat.name) && !cat.touched) {
+            cat.value = 5;
+            cat.touched = true;
+            changed = true;
+        }
+    });
+    return changed;
+}
+
+// Call after any data change that could affect category completion.
+// Bumps + saves + re-renders the chart in one go.
+function refreshChartAfterDataChange() {
+    if (applyAutoBump()) saveDayData();
+    initChart();
+}
+
+// Click-to-edit for titles. Replaces the element with an input on click,
+// commits on Enter / blur, cancels on Escape.
+//   titleEl  - the <h*> element to make editable
+//   getValue - () => current raw string (NOT uppercased)
+//   onSave   - (newValue) => void; called only if value changed and is non-empty.
+//             onSave should perform any persistence; this helper handles
+//             swapping the input back to the title element automatically.
+function makeTitleEditable(titleEl, getValue, onSave) {
+    if (!titleEl) return;
+    titleEl.classList.add('editable-title');
+    titleEl.style.cursor = 'text';
+
+    titleEl.onclick = () => {
+        const currentValue = getValue();
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'title-edit-input';
+        input.value = currentValue;
+
+        const parent = titleEl.parentNode;
+        parent.replaceChild(input, titleEl);
+        input.focus();
+        input.select();
+
+        let finished = false;
+        const commit = (save) => {
+            if (finished) return;
+            finished = true;
+            const newValue = input.value.trim();
+            const shouldSave = save && newValue && newValue !== currentValue;
+            // Always swap the title element back in first
+            if (input.parentNode) input.parentNode.replaceChild(titleEl, input);
+            if (shouldSave) {
+                titleEl.textContent = newValue.toUpperCase();
+                onSave(newValue);
+            }
+        };
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+            else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+        });
+        input.addEventListener('blur', () => commit(true));
+    };
 }
 
 function loadDayData() {
@@ -125,16 +246,23 @@ function loadDayData() {
 
     categories = defaultValues.map((def, idx) => {
         const saved = savedVitals[idx] || {};
+        // "touched" means the user has interacted with this dot. We use the
+        // presence of a saved value as a signal that they touched it before
+        // (or that auto-bump fired, which we treat as touched too once committed).
+        const wasSaved = saved.value !== undefined;
         return {
             name: def.name,
-            value: saved.value !== undefined ? saved.value : def.value,
-            note: saved.note !== undefined ? saved.note : def.note
+            value: wasSaved ? saved.value : def.value,
+            note: saved.note !== undefined ? saved.note : def.note,
+            touched: wasSaved
         };
     });
 
+    if (applyAutoBump()) saveDayData();
+
     updateDateDisplay();
     initChart();
-    renderAvoidedButtons();
+    renderSinsMixer();
 }
 
 function saveDayData() {
@@ -208,43 +336,12 @@ function createGrid() {
         text.setAttribute("y", labelPos.y);
 
 
-        let hasNote = false;
-        if (cat.name === 'Spirituality') {
-            const all = JSON.parse(Storage.getItem(SPIRITUAL_KEY) || '{}');
-            const entries = all[getDateKey(viewDate)] || [];
-            hasNote = entries.some(e => e.topic || e.notes);
-        }
-        else if (['Mindfulness', 'Recovery', 'Reflection'].includes(cat.name)) {
-            const all = JSON.parse(Storage.getItem('journal_entries__' + cat.name.toLowerCase()) || '{}');
-            const entries = all[getDateKey(viewDate)] || [];
-            hasNote = entries.some(e => e.topic || e.notes);
-        }
-        else if (cat.name === 'Mindset') {
-            const all = JSON.parse(Storage.getItem('mindset_notes') || '{}');
-            const datePrefix = getDateKey(viewDate) + '__';
-            hasNote = Object.keys(all).some(k => k.startsWith(datePrefix) && all[k].trim() !== '');
-        }
-        else if (cat.name === 'Mobility') {
-            const datePrefix = getDateKey(viewDate) + '__';
-
-            const logs = JSON.parse(Storage.getItem('exercise_logs') || '{}');
-            const hasLifts = Object.keys(logs).some(k =>
-                k.startsWith(datePrefix) && logs[k].some(s => s.weight || s.reps)
-            );
-
-            const simpleNotes = JSON.parse(Storage.getItem('mobility_simple_notes') || '{}');
-            const hasSimple = Object.keys(simpleNotes).some(k =>
-                k.startsWith(datePrefix) && simpleNotes[k].trim() !== ''
-            );
-            hasNote = hasLifts || hasSimple;
-        }
+        const hasNote = isCategoryCompleted(cat.name);
 
 
         text.setAttribute("class", hasNote ? "axis-label has-note" : "axis-label");
 
         text.textContent = cat.name.toUpperCase();
-        text.onclick = () => openNoteModal(i);
-
         text.onclick = () => openNoteModal(i);
 
 
@@ -286,6 +383,12 @@ function render() {
         visualDot.setAttribute("cx", p.x); visualDot.setAttribute("cy", p.y);
         visualDot.setAttribute("r", 4); visualDot.setAttribute("class", "handle");
 
+        // Glow proportional to value: 0 = no glow, 10 = strong glow
+        const glowFraction = cat.value / maxValue;
+        const blurRadius = 2 + glowFraction * 12;       // 2 → 14
+        const opacity = 0.15 + glowFraction * 0.85;     // 0.15 → 1.0
+        visualDot.style.filter = `drop-shadow(0 0 ${blurRadius}px rgba(201,169,110,${opacity}))`;
+
 
         const percentage = Math.round(cat.value);
         const labelText = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -321,6 +424,10 @@ function render() {
         }
 
         labelText.textContent = `${percentage}`;
+        // Hide the number when (a) the user hasn't touched the dot yet, so the
+        // default value doesn't clutter the chart, or (b) the value is 0.
+        // Showing it requires any interaction — drag or tap, even back to default.
+        if (!cat.touched || percentage === 0) labelText.style.display = 'none';
 
         hitbox.addEventListener('mousedown', (e) => startDrag(e, i));
         hitbox.addEventListener('touchstart', (e) => startDrag(e, i), {passive: false});
@@ -384,6 +491,7 @@ function drag(e) {
     let newValue = (projectedDist / radius) * maxValue;
 
     categories[currentHandleIdx].value = Math.min(Math.max(Math.round(newValue), 0), maxValue);
+    categories[currentHandleIdx].touched = true;
 
     render();
     saveDayData();
@@ -394,6 +502,7 @@ function stopDrag(e) {
     if (!_dragMoved && currentHandleIdx !== null) {
         const cat = categories[currentHandleIdx];
         cat.value = cat.value >= maxValue ? 0 : cat.value + 1;
+        cat.touched = true;
         render();
         saveDayData();
     }
@@ -568,7 +677,7 @@ document.getElementById('saveNote').onclick = () => {
         saveDayData();
 
 
-        initChart();
+        refreshChartAfterDataChange();
 
         noteModal.style.display = 'none';
         activeNoteIdx = null;
@@ -588,40 +697,131 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-function renderAvoidedButtons() {
-    const container = document.getElementById('avoided-buttons');
+function renderSinsMixer() {
+    const container = document.getElementById('sins-mixer');
     if (!container) return;
     container.innerHTML = '';
 
+    const levels = getSinLevelsForDay();
+    const entries = getAvoidedEntries();
+
     avoidedActivitiesList.forEach(activity => {
-        const btn = document.createElement('button');
-        btn.className = 'avoid-btn';
+        const slot = document.createElement('div');
+        slot.className = 'sin-slot';
 
+        // Note exists for this activity today?
+        const entryKey = getDateKey(viewDate) + '__' + activity;
+        const hasNote = !!entries[entryKey] && (entries[entryKey].happened || entries[entryKey].learned);
 
-        if (avoidedToday.includes(activity)) {
-            btn.classList.add('active');
-        }
+        // Label (click → opens note modal). When a note exists for today,
+        // CSS underlines the label via the .has-note class.
+        const label = document.createElement('span');
+        label.className = hasNote ? 'sin-label has-note' : 'sin-label';
+        label.textContent = activity;
+        label.onclick = () => openAvoidedModal(activity);
 
-        btn.textContent = activity;
-        btn.onclick = () => toggleAvoided(activity);
-        container.appendChild(btn);
+        // Slider assembly: wrap > track (with fill inside) + thumb.
+        // No <input> — pointer events on the wrap drive the value, eliminating
+        // browser-quirk centering issues that come with rotating native inputs.
+        const wrap = document.createElement('div');
+        wrap.className = 'sin-slider-wrap';
+
+        const track = document.createElement('div');
+        track.className = 'sin-slider-track';
+
+        const fill = document.createElement('div');
+        fill.className = 'sin-slider-fill';
+        track.appendChild(fill);
+
+        const thumb = document.createElement('div');
+        thumb.className = 'sin-slider-thumb';
+
+        const valueText = document.createElement('span');
+        valueText.className = 'sin-value';
+
+        let currentValue = parseInt(levels[activity] || 0, 10);
+
+        // Sync visuals to the current value.
+        const sync = () => {
+            const pct = (currentValue / 10) * 100;
+            fill.style.height = pct + '%';
+
+            // Position thumb so its center sits at the top of the fill.
+            // Track is inset 8px top/bottom (matches half-thumb-height).
+            const wrapH = wrap.clientHeight || 100;
+            const inset = 8;
+            const thumbH = 10;
+            const usable = wrapH - inset * 2;
+            const fillTopPx = inset + (currentValue / 10) * usable;
+            thumb.style.bottom = (fillTopPx - thumbH / 2) + 'px';
+
+            const isOn = currentValue > 0;
+            track.classList.toggle('has-value', isOn);
+            thumb.classList.toggle('has-value', isOn);
+            valueText.classList.toggle('has-value', isOn);
+            valueText.textContent = isOn ? String(currentValue) : '\u00A0';
+        };
+
+        // Pointer-based drag. We track a starting Y and only update the value
+        // based on how far the pointer has moved from that start — not from
+        // the absolute pointer position. This means clicking on the wrap
+        // doesn't snap the thumb; only dragging does.
+        let dragging = false;
+        let startClientY = 0;
+        let startValue = 0;
+
+        const onPointerDown = (e) => {
+            e.preventDefault();
+            dragging = true;
+            startClientY = e.clientY;
+            startValue = currentValue;
+            wrap.setPointerCapture && wrap.setPointerCapture(e.pointerId);
+        };
+        const onPointerMove = (e) => {
+            if (!dragging) return;
+            e.preventDefault();
+            const rect = wrap.getBoundingClientRect();
+            const inset = 8;
+            const usable = rect.height - inset * 2;
+            // Up = positive value change. Each `usable / 10` pixels = 1 step.
+            const deltaY = startClientY - e.clientY;
+            const deltaValue = Math.round((deltaY / usable) * 10);
+            let v = startValue + deltaValue;
+            v = Math.max(0, Math.min(10, v));
+            if (v !== currentValue) {
+                currentValue = v;
+                setSinLevel(activity, v);
+                sync();
+            }
+        };
+        const onPointerUp = (e) => {
+            if (!dragging) return;
+            dragging = false;
+            wrap.releasePointerCapture && wrap.releasePointerCapture(e.pointerId);
+        };
+
+        wrap.addEventListener('pointerdown', onPointerDown);
+        wrap.addEventListener('pointermove', onPointerMove);
+        wrap.addEventListener('pointerup', onPointerUp);
+        wrap.addEventListener('pointercancel', onPointerUp);
+
+        wrap.appendChild(track);
+        wrap.appendChild(thumb);
+
+        // Initial layout pass — needs the wrap to be in the DOM for clientHeight
+        slot.appendChild(label);
+        slot.appendChild(wrap);
+        slot.appendChild(valueText);
+        container.appendChild(slot);
+
+        sync();
     });
-}
-
-function toggleAvoided(activity) {
-    if (avoidedToday.includes(activity)) {
-
-        avoidedToday = avoidedToday.filter(item => item !== activity);
-    } else {
-
-        avoidedToday.push(activity);
-    }
-    saveDayData();
-    renderAvoidedButtons();
 }
 
 const EXERCISE_LIBRARY_KEY = 'exercise_library';
 const EXERCISE_LOGS_KEY = 'exercise_logs';
+const EXERCISE_CHECKS_KEY = 'exercise_set_checks';
+const EXERCISE_NOTES_KEY = 'exercise_notes';
 
 const muscleGroups = ['Triceps', 'Biceps', 'Shoulders', 'Chest', 'Back', 'Abs'];
 let activeMuscle = null;
@@ -640,16 +840,29 @@ function saveMasterLibrary(lib) {
 function getDayLibraryKey(date) {
     return `exercise_library__${getDateKey(date)}`;
 }
+
+// Returns the most recent prior day (within 365 days) that has a library
+// snapshot, so newly opened days inherit yesterday's exercise list.
+function findMostRecentLibrary() {
+    const probe = new Date(viewDate);
+    for (let i = 0; i < 365; i++) {
+        probe.setDate(probe.getDate() - 1);
+        const raw = Storage.getItem(`exercise_library__${getDateKey(probe)}`);
+        if (raw) return JSON.parse(raw);
+    }
+    return null;
+}
+
 function getExerciseLibrary() {
     const dayKey = getDayLibraryKey(viewDate);
     const dayRaw = Storage.getItem(dayKey);
     if (dayRaw) {
         return JSON.parse(dayRaw);
     }
-
-    const master = getMasterLibrary();
-    Storage.setItem(dayKey, JSON.stringify(master));
-    return master;
+    // No snapshot for today → inherit yesterday's (or the master if first time)
+    const inherited = findMostRecentLibrary() || getMasterLibrary();
+    Storage.setItem(dayKey, JSON.stringify(inherited));
+    return inherited;
 }
 function saveExerciseLibrary(lib) {
 
@@ -666,9 +879,44 @@ function getDayLogKey(muscle, exercise) {
     return `${getDateKey(viewDate)}__${muscle}__${exercise}`;
 }
 
+// Returns the most recent prior day's set log for this muscle+exercise, used
+// as a default when the current day has no log yet. Walks back up to 365 days.
+function getInheritedLog(muscle, exercise) {
+    const logs = getExerciseLogs();
+    const probe = new Date(viewDate);
+    for (let i = 0; i < 365; i++) {
+        probe.setDate(probe.getDate() - 1);
+        const key = `${getDateKey(probe)}__${muscle}__${exercise}`;
+        if (logs[key]) return logs[key];
+    }
+    return null;
+}
+
+// Per-day checked-state for sets. Each value is an array of booleans, one per set.
+function getExerciseChecks() {
+    const raw = Storage.getItem(EXERCISE_CHECKS_KEY);
+    return raw ? JSON.parse(raw) : {};
+}
+function saveExerciseChecks(checks) {
+    Storage.setItem(EXERCISE_CHECKS_KEY, JSON.stringify(checks));
+}
+
+// Per-exercise notes — keyed by muscle+exercise, NOT per-day. Notes are
+// considered persistent guidance for the exercise itself, so they carry over.
+function getExerciseNotes() {
+    const raw = Storage.getItem(EXERCISE_NOTES_KEY);
+    return raw ? JSON.parse(raw) : {};
+}
+function saveExerciseNotes(notes) {
+    Storage.setItem(EXERCISE_NOTES_KEY, JSON.stringify(notes));
+}
+function getExerciseNoteKey(muscle, exercise) {
+    return `${muscle}__${exercise}`;
+}
+
 
 function showExScreen(id) {
-    ['ex-screen-muscles','ex-screen-exercises','ex-screen-sets','ex-screen-simple'].forEach(s => {
+    ['ex-screen-muscles','ex-screen-exercises','ex-screen-sets','ex-screen-simple','ex-screen-ex-notes'].forEach(s => {
         document.getElementById(s).style.display = s === id ? 'block' : 'none';
     });
 }
@@ -697,15 +945,16 @@ function openExerciseModal() {
 function renderMuscleGrid() {
     const grid = document.getElementById('muscle-grid');
     grid.innerHTML = '';
-    const logs = getExerciseLogs();
+    const checks = getExerciseChecks();
     const datePrefix = getDateKey(viewDate) + '__';
 
     muscleGroups.forEach(muscle => {
         const btn = document.createElement('button');
         btn.className = 'muscle-btn';
-        const hasData = Object.keys(logs).some(k =>
+        // A muscle group counts as "done today" if any set was checked off today
+        const hasData = Object.keys(checks).some(k =>
             k.startsWith(datePrefix + muscle + '__') &&
-            logs[k].some(s => (s.weight && s.weight !== '0') || (s.reps && s.reps !== '0'))
+            (checks[k] || []).some(Boolean)
         );
         if (hasData) btn.classList.add('has-data');
         btn.textContent = muscle.toUpperCase();
@@ -748,7 +997,7 @@ document.getElementById('exSimpleSaveBtn').onclick = () => {
     const notes = getMobilitySimpleNotes();
     notes[getMobilitySimpleKey(type)] = document.getElementById('exSimpleNotes').value.trim();
     saveMobilitySimpleNotes(notes);
-    initChart();
+    refreshChartAfterDataChange();
     renderMuscleGrid();
     showExScreen('ex-screen-muscles');
 };
@@ -770,7 +1019,7 @@ function renderExerciseList() {
     const library = getExerciseLibrary();
     const exercises = library[activeMuscle] || [];
     const logs = getExerciseLogs();
-    const datePrefix = getDateKey(viewDate) + '__';
+    const checks = getExerciseChecks();
 
     if (exercises.length === 0) {
         list.innerHTML = '<p class="empty-state">No exercises yet. Add one below.</p>';
@@ -779,11 +1028,15 @@ function renderExerciseList() {
 
     exercises.forEach(ex => {
         const logKey = getDayLogKey(activeMuscle, ex);
-        const sets = logs[logKey];
-        const hasData = sets && sets.some(s => s.weight || s.reps);
+        // Display weights from today if logged, otherwise inherit from the
+        // most recent prior day so the user sees their last numbers.
+        const sets = logs[logKey] || getInheritedLog(activeMuscle, ex);
+        // "has-data" is now driven by today's checks (workout actually done today)
+        const todaysChecks = checks[logKey] || [];
+        const isDoneToday = todaysChecks.some(Boolean);
 
         const row = document.createElement('div');
-        row.className = hasData ? 'exercise-row has-data' : 'exercise-row';
+        row.className = isDoneToday ? 'exercise-row has-data' : 'exercise-row';
 
         const name = document.createElement('span');
         name.className = 'exercise-row-name';
@@ -791,7 +1044,7 @@ function renderExerciseList() {
 
         const meta = document.createElement('span');
         meta.className = 'exercise-row-meta';
-        if (hasData) {
+        if (sets && sets.some(s => s.weight || s.reps)) {
             meta.textContent = sets.filter(s => s.weight || s.reps)
                 .map(s => `${s.weight||'?'}kg × ${s.reps||'?'}`)
                 .join('  ');
@@ -836,7 +1089,7 @@ function deleteExercise(ex) {
 
 
     renderExerciseList();
-    initChart();
+    refreshChartAfterDataChange();
 }
 
 document.getElementById('addExerciseBtn').onclick = () => {
@@ -876,7 +1129,12 @@ document.getElementById('newExerciseInput').addEventListener('keydown', e => {
 
 function openSetsScreen(exercise) {
     activeExercise = exercise;
-    document.getElementById('ex-exercise-title').textContent = exercise.toUpperCase();
+    const titleEl = document.getElementById('ex-exercise-title');
+    titleEl.textContent = exercise.toUpperCase();
+    // Click the exercise name to open its notes screen (rename happens there)
+    titleEl.classList.add('editable-title');
+    titleEl.style.cursor = 'pointer';
+    titleEl.onclick = () => openExerciseNotesScreen(exercise);
     renderSets();
     showExScreen('ex-screen-sets');
 }
@@ -885,8 +1143,20 @@ function renderSets() {
     const container = document.getElementById('sets-list');
     container.innerHTML = '';
     const logs = getExerciseLogs();
+    const checks = getExerciseChecks();
     const logKey = getDayLogKey(activeMuscle, activeExercise);
-    const saved = logs[logKey] || [{weight:'',reps:''},{weight:'',reps:''},{weight:'',reps:''}];
+
+    // Use today's saved sets if present, otherwise inherit yesterday's so the
+    // weights/reps fields are pre-filled with the user's previous numbers.
+    let saved = logs[logKey];
+    if (!saved) {
+        const inherited = getInheritedLog(activeMuscle, activeExercise);
+        saved = inherited
+            ? inherited.map(s => ({ weight: s.weight || '', reps: s.reps || '' }))
+            : [{weight:'',reps:''},{weight:'',reps:''},{weight:'',reps:''}];
+    }
+    // Per-day checked state — never inherited; each new day starts unchecked.
+    const todaysChecks = checks[logKey] || [false, false, false];
 
 
     const header = document.createElement('div');
@@ -907,7 +1177,18 @@ function renderSets() {
 
         const label = document.createElement('span');
         label.className = 'set-label';
+        if (todaysChecks[i]) label.classList.add('checked');
         label.textContent = `SET ${i + 1}`;
+        // Click to toggle checked state — this is what counts as "worked out today"
+        label.onclick = () => {
+            const allChecks = getExerciseChecks();
+            const current = allChecks[logKey] || [false, false, false];
+            current[i] = !current[i];
+            allChecks[logKey] = current;
+            saveExerciseChecks(allChecks);
+            label.classList.toggle('checked', current[i]);
+            refreshChartAfterDataChange();
+        };
 
         const group = document.createElement('div');
         group.className = 'set-input-group';
@@ -966,9 +1247,114 @@ document.getElementById('saveSetsBtn').onclick = () => {
     }
     logs[logKey] = sets;
     saveExerciseLogs(logs);
-    initChart();
+    refreshChartAfterDataChange();
     renderExerciseList();
     showExScreen('ex-screen-exercises');
+};
+
+// ─── Exercise notes screen ──────────────────────────────────────────
+function openExerciseNotesScreen(exercise) {
+    activeExercise = exercise;
+    const titleEl = document.getElementById('ex-notes-title');
+    titleEl.textContent = exercise.toUpperCase();
+
+    // Click the title to rename the exercise
+    makeTitleEditable(
+        titleEl,
+        () => activeExercise,
+        (newName) => {
+            renameExercise(activeMuscle, activeExercise, newName);
+            activeExercise = newName;
+        }
+    );
+
+    const notes = getExerciseNotes();
+    document.getElementById('exNotesInput').value =
+        notes[getExerciseNoteKey(activeMuscle, exercise)] || '';
+    showExScreen('ex-screen-ex-notes');
+    setTimeout(() => document.getElementById('exNotesInput').focus(), 50);
+}
+
+// Rename an exercise everywhere it appears: every day's library snapshot,
+// the master library, every day's set log, all checks, and any notes.
+function renameExercise(muscle, oldName, newName) {
+    if (oldName === newName) return;
+
+    // 1) Every per-day library snapshot
+    const allKeys = Object.keys(_cache);
+    allKeys.forEach(k => {
+        if (k.startsWith('exercise_library__')) {
+            try {
+                const lib = JSON.parse(_cache[k]);
+                if (lib[muscle]) {
+                    const idx = lib[muscle].indexOf(oldName);
+                    if (idx >= 0) {
+                        lib[muscle][idx] = newName;
+                        Storage.setItem(k, JSON.stringify(lib));
+                    }
+                }
+            } catch(e) {}
+        }
+    });
+
+    // 2) Master library
+    const master = getMasterLibrary();
+    if (master[muscle]) {
+        const idx = master[muscle].indexOf(oldName);
+        if (idx >= 0) master[muscle][idx] = newName;
+        saveMasterLibrary(master);
+    }
+
+    // 3) Migrate set logs (every dated key with this muscle+exercise)
+    const logs = getExerciseLogs();
+    const oldSuffix = `__${muscle}__${oldName}`;
+    const newSuffix = `__${muscle}__${newName}`;
+    Object.keys(logs).forEach(k => {
+        if (k.endsWith(oldSuffix)) {
+            const datePart = k.slice(0, k.length - oldSuffix.length);
+            logs[datePart + newSuffix] = logs[k];
+            delete logs[k];
+        }
+    });
+    saveExerciseLogs(logs);
+
+    // 4) Migrate checked-set state similarly
+    const checks = getExerciseChecks();
+    Object.keys(checks).forEach(k => {
+        if (k.endsWith(oldSuffix)) {
+            const datePart = k.slice(0, k.length - oldSuffix.length);
+            checks[datePart + newSuffix] = checks[k];
+            delete checks[k];
+        }
+    });
+    saveExerciseChecks(checks);
+
+    // 5) Migrate the per-exercise note
+    const notes = getExerciseNotes();
+    const oldNoteKey = getExerciseNoteKey(muscle, oldName);
+    const newNoteKey = getExerciseNoteKey(muscle, newName);
+    if (notes[oldNoteKey]) {
+        notes[newNoteKey] = notes[oldNoteKey];
+        delete notes[oldNoteKey];
+        saveExerciseNotes(notes);
+    }
+}
+
+document.getElementById('exNotesSaveBtn').onclick = () => {
+    const notes = getExerciseNotes();
+    notes[getExerciseNoteKey(activeMuscle, activeExercise)] =
+        document.getElementById('exNotesInput').value.trim();
+    saveExerciseNotes(notes);
+    // Go back to sets screen so the user is in workout flow
+    openSetsScreen(activeExercise);
+};
+
+document.getElementById('exBackToSets').onclick = () => {
+    openSetsScreen(activeExercise);
+};
+
+document.getElementById('closeExerciseModal5').onclick = () => {
+    document.getElementById('exerciseModal').style.display = 'none';
 };
 
 
@@ -1053,7 +1439,7 @@ function renderSpiritualList() {
             saveSpiritualEntries(entries);
             renderSpiritualList();
 
-            initChart();
+            refreshChartAfterDataChange();
         };
 
         row.appendChild(topic);
@@ -1087,7 +1473,7 @@ document.getElementById('spSaveEntryBtn').onclick = () => {
     }
 
     saveSpiritualEntries(entries);
-    initChart();
+    refreshChartAfterDataChange();
     renderSpiritualList();
     showSpScreen('sp-screen-list');
 };
@@ -1166,7 +1552,7 @@ function renderJournalList(type) {
             entries.splice(idx, 1);
             saveJournalEntries(type, entries);
             renderJournalList(type);
-            initChart();
+            refreshChartAfterDataChange();
         };
         row.appendChild(topic);
         row.appendChild(del);
@@ -1201,7 +1587,7 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
             entries[activeJournalEntryId] = { topic, notes };
         }
         saveJournalEntries(type, entries);
-        initChart();
+        refreshChartAfterDataChange();
         renderJournalList(type);
         showJournalScreen(p + '-screen-list');
     };
@@ -1292,7 +1678,7 @@ function renderBookList() {
             const lib = getMindsetLibraryForType(activeMindsetType).filter(b => b !== item);
             saveMindsetLibraryForType(activeMindsetType, lib);
             renderBookList();
-            initChart();
+            refreshChartAfterDataChange();
         };
 
         row.appendChild(title);
@@ -1304,11 +1690,48 @@ function renderBookList() {
 
 function openBookNotes(item) {
     activeBook = item;
-    document.getElementById('ms-book-title').textContent = item.toUpperCase();
+    const titleEl = document.getElementById('ms-book-title');
+    titleEl.textContent = item.toUpperCase();
     const notes = getMindsetNotes();
     document.getElementById('msBookNotes').value = notes[getMindsetNoteKey(activeMindsetType, item)] || '';
+
+    // Click-to-rename the book/video/podcast/etc title
+    makeTitleEditable(
+        titleEl,
+        () => activeBook,
+        (newName) => {
+            renameMindsetItem(activeMindsetType, activeBook, newName);
+            activeBook = newName;
+        }
+    );
+
     showMsScreen('ms-screen-notes');
     setTimeout(() => document.getElementById('msBookNotes').focus(), 50);
+}
+
+// Rename a mindset library item (book/video/podcast/conversation) and migrate
+// any existing notes to the new key, in the active type's library.
+function renameMindsetItem(type, oldName, newName) {
+    if (oldName === newName) return;
+    // 1) library
+    const lib = getMindsetLibraryForType(type);
+    const idx = lib.indexOf(oldName);
+    if (idx >= 0) {
+        lib[idx] = newName;
+        saveMindsetLibraryForType(type, lib);
+    }
+    // 2) notes (migrate every date that had a note for this item)
+    const notes = getMindsetNotes();
+    const oldSuffix = '__' + type + '__' + oldName;
+    const newSuffix = '__' + type + '__' + newName;
+    Object.keys(notes).forEach(k => {
+        if (k.endsWith(oldSuffix)) {
+            const datePart = k.slice(0, k.length - oldSuffix.length);
+            notes[datePart + newSuffix] = notes[k];
+            delete notes[k];
+        }
+    });
+    saveMindsetNotes(notes);
 }
 
 document.getElementById('addBookBtn').onclick = () => {
@@ -1331,7 +1754,7 @@ document.getElementById('msSaveNotesBtn').onclick = () => {
     const notes = getMindsetNotes();
     notes[getMindsetNoteKey(activeMindsetType, activeBook)] = document.getElementById('msBookNotes').value.trim();
     saveMindsetNotes(notes);
-    initChart();
+    refreshChartAfterDataChange();
     renderBookList();
     showMsScreen('ms-screen-books');
 };
@@ -1384,41 +1807,16 @@ document.getElementById('avoidedSaveBtn').addEventListener('click', function() {
 
     if (happened || learned) {
         all[key] = { happened, learned };
-        if (!avoidedToday.includes(activeAvoidedActivity)) {
-            avoidedToday.push(activeAvoidedActivity);
-        }
     } else {
         delete all[key];
-        avoidedToday = avoidedToday.filter(a => a !== activeAvoidedActivity);
     }
 
     Storage.setItem(AVOIDED_ENTRIES_KEY, JSON.stringify(all));
-    saveDayData();
-    renderAvoidedButtons();
+    renderSinsMixer();
     closeAvoidedModal();
 });
 
 document.getElementById('closeAvoidedModal').addEventListener('click', closeAvoidedModal);
-
-
-(function() {
-    const original = renderAvoidedButtons;
-    window.renderAvoidedButtons = function() {
-        const container = document.getElementById('avoided-buttons');
-        if (!container) return;
-        container.innerHTML = '';
-        avoidedActivitiesList.forEach(activity => {
-            const btn = document.createElement('button');
-            btn.className = 'avoid-btn';
-            const entry = getAvoidedEntry(activity);
-            if (avoidedToday.includes(activity) || entry) btn.classList.add('active');
-            btn.textContent = activity;
-            btn.onclick = () => openAvoidedModal(activity);
-            container.appendChild(btn);
-        });
-    };
-    renderAvoidedButtons();
-})();
 
 
 window.addEventListener('keydown', (e) => {

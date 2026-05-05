@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Self-Improvement Radar</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" type="image/x-icon" href="icon2.png">
+    <link rel="icon" type="image/x-icon" href="favicon.png">
 </head>
 <body>
 
@@ -28,7 +28,7 @@
         </div>
         <div class="avoided-section">
             <br>
-            <div id="avoided-buttons"></div>
+            <div id="sins-mixer"></div>
         </div>
     </div>
 
@@ -61,6 +61,15 @@
                 <div id="sets-list" class="sets-list"></div>
                 <button id="saveSetsBtn" class="ex-save-btn">SAVE</button>
                 <button class="ex-close-btn" id="closeExerciseModal3">CLOSE</button>
+            </div>
+            <div id="ex-screen-ex-notes" class="ex-screen hidden">
+                <div class="ex-nav">
+                    <button class="ex-back-btn" id="exBackToSets">&#8592; BACK</button>
+                    <h3 class="ex-title editable-title" id="ex-notes-title">EXERCISE</h3>
+                </div>
+                <textarea id="exNotesInput" placeholder="Notes for this exercise..." class="sp-notes-input mindset-notes"></textarea>
+                <button id="exNotesSaveBtn" class="ex-save-btn">SAVE</button>
+                <button class="ex-close-btn" id="closeExerciseModal5">CLOSE</button>
             </div>
             <div id="ex-screen-simple" class="ex-screen hidden">
                 <div class="ex-nav">
@@ -236,7 +245,7 @@
 
     <div id="gratitudeModal" class="modal">
         <div class="modal-content exercise-modal-content">
-            <h3 class="ex-title">What made you happy today?</h3>
+            <h3 class="ex-title ex-title-prompt">What made you happy today?</h3>
             <div class="gratitude-fields">
                 <input id="grateful1" type="text" class="ex-input full-width gratitude-input" placeholder="1."/>
                 <input id="grateful2" type="text" class="ex-input full-width gratitude-input" placeholder="2."/>
