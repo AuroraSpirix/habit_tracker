@@ -86,18 +86,62 @@ let viewDate = new Date();
 let categories = [];
 let isDragging = false;
 let currentHandleIdx = null;
+// ─── RADAR CHART LABELS ───────────────────────────────────────────────────
+// The order of items in this array determines the order of labels around the
+// radar chart, starting from the TOP and going CLOCKWISE.
+//
+//                    [0] (top)
+//                  /         \
+//              [5]             [1]
+//               |               |
+//              [4]             [2]
+//                  \         /
+//                    [3] (bottom)
+//
+// To reorder labels, just rearrange the items in this array.
+// The "value" is the default starting value (out of 10) for an untouched dot.
 const defaultValues = [
     { name: 'Spirituality', value: 2, note: '' },
     { name: 'Mobility', value: 2, note: '' },
     { name: 'Mindset', value: 2, note: '' },
-    { name: 'Reflection', value: 2, note: '' },
+    { name: 'Mindfulness', value: 2, note: '' },
     { name: 'Recovery', value: 2, note: '' },
-    { name: 'Mindfulness', value: 2, note: '' }
+    { name: 'Reflection', value: 2, note: '' }
 ];
 
 const avoidedActivitiesList = ['Pride', 'Greed', 'Lust', 'Envy', 'Gluttony', 'Wrath', 'Sloth'];
+const christLikeAttributesList = ['Faith', 'Hope', 'Charity', 'Virtue', 'Knowledge', 'Patience', 'Humility', 'Diligence', 'Obedience', 'Integrity'];
 let avoidedToday = []; // legacy — kept so old saved data still loads cleanly
 const SIN_LEVELS_KEY = 'sin_levels';
+const VIRTUE_LEVELS_KEY = 'virtue_levels';
+const VIRTUE_ENTRIES_KEY = 'virtue_entries';
+const AVOIDED_ENTRIES_KEY = 'avoided_entries';
+
+// Which slider set is currently visible — 'sins' or 'virtues'.
+// Persisted so the user's preference survives page reloads.
+const MIXER_MODE_KEY = 'mixer_mode';
+function getMixerMode() {
+    return Storage.getItem(MIXER_MODE_KEY) || 'sins';
+}
+function setMixerMode(mode) {
+    Storage.setItem(MIXER_MODE_KEY, mode);
+}
+
+// Per-mode config so the renderer doesn't need branchy if/else everywhere.
+function getMixerConfig(mode) {
+    if (mode === 'virtues') {
+        return {
+            list: christLikeAttributesList,
+            levelsKey: VIRTUE_LEVELS_KEY,
+            entriesKey: VIRTUE_ENTRIES_KEY,
+        };
+    }
+    return {
+        list: avoidedActivitiesList,
+        levelsKey: SIN_LEVELS_KEY,
+        entriesKey: AVOIDED_ENTRIES_KEY,
+    };
+}
 
 function getAllSinLevels() {
     try { return JSON.parse(Storage.getItem(SIN_LEVELS_KEY)) || {}; }
@@ -117,6 +161,28 @@ function setSinLevel(activity, value) {
         all[dayKey][activity] = value;
     }
     Storage.setItem(SIN_LEVELS_KEY, JSON.stringify(all));
+}
+
+// Generic versions used by the mixer renderer — work with any storage key.
+// Keep the sin-specific ones above so existing callers (if any) still work.
+function getAllLevels(key) {
+    try { return JSON.parse(Storage.getItem(key)) || {}; }
+    catch(e) { return {}; }
+}
+function getLevelsForDay(key) {
+    return getAllLevels(key)[getDateKey(viewDate)] || {};
+}
+function setLevel(key, activity, value) {
+    const all = getAllLevels(key);
+    const dayKey = getDateKey(viewDate);
+    if (!all[dayKey]) all[dayKey] = {};
+    if (value === 0) {
+        delete all[dayKey][activity];
+        if (Object.keys(all[dayKey]).length === 0) delete all[dayKey];
+    } else {
+        all[dayKey][activity] = value;
+    }
+    Storage.setItem(key, JSON.stringify(all));
 }
 
 
@@ -329,7 +395,10 @@ function createGrid() {
         svg.appendChild(line);
 
 
-        const labelDistance = maxValue + 3;
+        // Label distance from center. maxValue is 10 (the outer ring of the chart),
+        // so adding to it pushes labels OUTSIDE the chart. Lower value = closer to center.
+        // Was maxValue + 3, now maxValue + 1.5 for tighter labels.
+        const labelDistance = maxValue + 1.5;
         const labelPos = getCoords(i, labelDistance);
         const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
         text.setAttribute("x", labelPos.x);
@@ -429,8 +498,12 @@ function render() {
         // Showing it requires any interaction — drag or tap, even back to default.
         if (!cat.touched || percentage === 0) labelText.style.display = 'none';
 
-        hitbox.addEventListener('mousedown', (e) => startDrag(e, i));
-        hitbox.addEventListener('touchstart', (e) => startDrag(e, i), {passive: false});
+        // Hitboxes are kept (so the cursor: grab from CSS still works on
+        // hover), but the actual click→drag routing happens at the SVG level
+        // below. With 6 handles on a tight circle, the 36px hitboxes overlap
+        // heavily — and SVG hit-testing prefers later siblings, so the
+        // "wrong" (next) handle was winning. Picking nearest-by-distance
+        // fixes that.
 
         group.appendChild(hitbox);
         group.appendChild(visualDot);
@@ -440,6 +513,36 @@ function render() {
 
 
 }
+
+// Single SVG-wide pointerdown that picks the NEAREST handle to the click.
+// Set up once at script load — kept outside render() so we don't pile up
+// duplicate listeners every time the chart redraws.
+svg.addEventListener('pointerdown', (e) => {
+    // Convert click point to SVG coords for accurate distance comparisons
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const p = pt.matrixTransform(ctm.inverse());
+
+    // Find the closest handle within a max distance threshold (36 SVG units —
+    // matches the original hitbox radius, so the click area feels the same).
+    let bestIdx = -1;
+    let bestDist = 36;
+    categories.forEach((cat, i) => {
+        const c = getCoords(i, cat.value);
+        const d = Math.hypot(c.x - p.x, c.y - p.y);
+        if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
+        }
+    });
+
+    if (bestIdx !== -1) {
+        startDrag(e, bestIdx);
+    }
+});
 
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && modal.style.display === 'flex') {
@@ -453,35 +556,54 @@ function startDrag(e, index) {
     e.stopPropagation();
     isDragging = false; // will become true on first move
     currentHandleIdx = index;
-    _dragStartX = e.touches ? e.touches[0].clientX : e.clientX;
-    _dragStartY = e.touches ? e.touches[0].clientY : e.clientY;
+    _dragStartX = e.clientX;
+    _dragStartY = e.clientY;
     _dragMoved = false;
+    _activePointerId = e.pointerId;
+    // Capture so we keep getting events even if the finger leaves the hitbox
+    if (e.target.setPointerCapture) {
+        try { e.target.setPointerCapture(e.pointerId); } catch (err) {}
+    }
     document.body.style.cursor = 'grabbing';
-    window.addEventListener('mousemove', drag, {passive: false});
-    window.addEventListener('mouseup', stopDrag);
-    window.addEventListener('touchmove', drag, {passive: false});
-    window.addEventListener('touchend', stopDrag);
+    window.addEventListener('pointermove', drag, {passive: false});
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
 }
 
-let _dragStartX = 0, _dragStartY = 0, _dragMoved = false;
+let _dragStartX = 0, _dragStartY = 0, _dragMoved = false, _activePointerId = null;
 
 function drag(e) {
     if (currentHandleIdx === null) return;
+    if (_activePointerId !== null && e.pointerId !== _activePointerId) return;
     e.preventDefault();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const clientX = e.clientX;
+    const clientY = e.clientY;
 
-    // Only start dragging after a small movement threshold (avoids misfire on tap)
+    // Bigger threshold on touch devices (pointerType === 'touch') because fingers
+    // jiggle more than a mouse. Prevents tap-from-becoming-drag misfires on mobile.
     if (!_dragMoved) {
+        const threshold = e.pointerType === 'touch' ? 8 : 4;
         const dist = Math.sqrt(Math.pow(clientX - _dragStartX, 2) + Math.pow(clientY - _dragStartY, 2));
-        if (dist < 4) return;
+        if (dist < threshold) return;
         _dragMoved = true;
         isDragging = true;
     }
 
-    const rect = svg.getBoundingClientRect();
-    const svgX = ((clientX - rect.left) / rect.width) * 400;
-    const svgY = ((clientY - rect.top) / rect.height) * 400;
+    // Convert client (screen) coords → SVG viewBox coords correctly.
+    // The previous version assumed a square 1:1 mapping from rect → viewBox,
+    // but with viewBox="0 0 400 400", overflow:visible labels, and any non-square
+    // rendered size, that's wrong — the result was that clicking one dot would
+    // drag the neighboring one. Using createSVGPoint().matrixTransform() with the
+    // inverse screen-CTM gives the exact viewBox coords regardless of size or
+    // aspect ratio.
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const svgPoint = pt.matrixTransform(ctm.inverse());
+    const svgX = svgPoint.x;
+    const svgY = svgPoint.y;
 
     const angle = (Math.PI * 2 / categories.length) * currentHandleIdx - Math.PI / 2;
     const dx = svgX - centerX;
@@ -498,6 +620,7 @@ function drag(e) {
 }
 
 function stopDrag(e) {
+    if (_activePointerId !== null && e && e.pointerId !== _activePointerId) return;
     // If barely moved, treat as a tap → increment value (wraps 0→10→0)
     if (!_dragMoved && currentHandleIdx !== null) {
         const cat = categories[currentHandleIdx];
@@ -509,11 +632,11 @@ function stopDrag(e) {
     isDragging = false;
     _dragMoved = false;
     currentHandleIdx = null;
+    _activePointerId = null;
     document.body.style.cursor = 'default';
-    window.removeEventListener('mousemove', drag);
-    window.removeEventListener('mouseup', stopDrag);
-    window.removeEventListener('touchmove', drag);
-    window.removeEventListener('touchend', stopDrag);
+    window.removeEventListener('pointermove', drag);
+    window.removeEventListener('pointerup', stopDrag);
+    window.removeEventListener('pointercancel', stopDrag);
 }
 
 
@@ -702,27 +825,47 @@ function renderSinsMixer() {
     if (!container) return;
     container.innerHTML = '';
 
-    const levels = getSinLevelsForDay();
-    const entries = getAvoidedEntries();
+    const mode = getMixerMode();
+    const cfg = getMixerConfig(mode);
+    const levels = getLevelsForDay(cfg.levelsKey);
+    const entries = getAllLevels(cfg.entriesKey); // entries is a flat map keyed by `${date}__${activity}`
 
-    avoidedActivitiesList.forEach(activity => {
+    // ─── Mode toggle: vertical button on the far left ──────────────
+    // Click cycles between sins ↔ virtues. The button label shows the
+    // mode you'll switch TO (so you know what tapping does). Vertical
+    // orientation keeps it narrow so it doesn't steal slider space.
+    const toggle = document.createElement('button');
+    toggle.className = 'mixer-toggle';
+    toggle.setAttribute('aria-label', mode === 'sins' ? 'Switch to virtues' : 'Switch to sins');
+    toggle.onclick = () => {
+        setMixerMode(mode === 'sins' ? 'virtues' : 'sins');
+        renderSinsMixer();
+    };
+    container.appendChild(toggle);
+
+    cfg.list.forEach(activity => {
         const slot = document.createElement('div');
         slot.className = 'sin-slot';
 
         // Note exists for this activity today?
+        // Supports both new format ({ notes }) and old format ({ happened, learned }).
         const entryKey = getDateKey(viewDate) + '__' + activity;
-        const hasNote = !!entries[entryKey] && (entries[entryKey].happened || entries[entryKey].learned);
+        const entry = entries[entryKey];
+        const hasNote = !!entry && (entry.notes || entry.happened || entry.learned);
 
         // Label (click → opens note modal). When a note exists for today,
         // CSS underlines the label via the .has-note class.
         const label = document.createElement('span');
         label.className = hasNote ? 'sin-label has-note' : 'sin-label';
-        label.textContent = activity;
+        // Sins are short already; virtues get truncated to 5 chars + "." so
+        // the long ones (Knowledge, Integrity, Patience…) don't squeeze the
+        // slot or wrap to two lines.
+        label.textContent = mode === 'virtues' && activity.length > 5
+            ? activity.slice(0, 5) + '.'
+            : activity;
         label.onclick = () => openAvoidedModal(activity);
 
         // Slider assembly: wrap > track (with fill inside) + thumb.
-        // No <input> — pointer events on the wrap drive the value, eliminating
-        // browser-quirk centering issues that come with rotating native inputs.
         const wrap = document.createElement('div');
         wrap.className = 'sin-slider-wrap';
 
@@ -746,8 +889,6 @@ function renderSinsMixer() {
             const pct = (currentValue / 10) * 100;
             fill.style.height = pct + '%';
 
-            // Position thumb so its center sits at the top of the fill.
-            // Track is inset 8px top/bottom (matches half-thumb-height).
             const wrapH = wrap.clientHeight || 100;
             const inset = 8;
             const thumbH = 10;
@@ -762,10 +903,7 @@ function renderSinsMixer() {
             valueText.textContent = isOn ? String(currentValue) : '\u00A0';
         };
 
-        // Pointer-based drag. We track a starting Y and only update the value
-        // based on how far the pointer has moved from that start — not from
-        // the absolute pointer position. This means clicking on the wrap
-        // doesn't snap the thumb; only dragging does.
+        // Pointer-based drag — relative-delta, so clicks don't snap the thumb.
         let dragging = false;
         let startClientY = 0;
         let startValue = 0;
@@ -783,14 +921,13 @@ function renderSinsMixer() {
             const rect = wrap.getBoundingClientRect();
             const inset = 8;
             const usable = rect.height - inset * 2;
-            // Up = positive value change. Each `usable / 10` pixels = 1 step.
             const deltaY = startClientY - e.clientY;
             const deltaValue = Math.round((deltaY / usable) * 10);
             let v = startValue + deltaValue;
             v = Math.max(0, Math.min(10, v));
             if (v !== currentValue) {
                 currentValue = v;
-                setSinLevel(activity, v);
+                setLevel(cfg.levelsKey, activity, v);
                 sync();
             }
         };
@@ -808,7 +945,6 @@ function renderSinsMixer() {
         wrap.appendChild(track);
         wrap.appendChild(thumb);
 
-        // Initial layout pass — needs the wrap to be in the DOM for clientHeight
         slot.appendChild(label);
         slot.appendChild(wrap);
         slot.appendChild(valueText);
@@ -1026,7 +1162,7 @@ function renderExerciseList() {
         return;
     }
 
-    exercises.forEach(ex => {
+    exercises.forEach((ex, idx) => {
         const logKey = getDayLogKey(activeMuscle, ex);
         // Display weights from today if logged, otherwise inherit from the
         // most recent prior day so the user sees their last numbers.
@@ -1037,6 +1173,7 @@ function renderExerciseList() {
 
         const row = document.createElement('div');
         row.className = isDoneToday ? 'exercise-row has-data' : 'exercise-row';
+        row.dataset.idx = idx;
 
         const name = document.createElement('span');
         name.className = 'exercise-row-name';
@@ -1062,9 +1199,244 @@ function renderExerciseList() {
         row.appendChild(name);
         row.appendChild(meta);
         row.appendChild(del);
-        row.onclick = () => openSetsScreen(ex);
+
+        // Drag-to-reorder: long-press on touch, regular drag on mouse.
+        // Tap (without drag) still opens the sets screen via the click handler below.
+        attachExerciseDragHandlers(row, ex);
+
         list.appendChild(row);
     });
+}
+
+// ─── Exercise drag-to-reorder ────────────────────────────────────────
+// Long-press (350ms) on touch or immediate drag on mouse to grab a row.
+// Click (no drag) still opens the sets screen.
+// The dragged row visually "lifts" and follows the pointer; the other rows
+// reflow live underneath so you can see exactly where it'll land before drop.
+let _exDrag = null; // null when not dragging; otherwise an object with state
+
+function attachExerciseDragHandlers(row, exerciseName) {
+    let longPressTimer = null;
+    let startX = 0, startY = 0;
+    let pointerDownTime = 0;
+    let activePointerId = null;
+    let dragArmed = false; // becomes true once long-press fires (touch) or move threshold passes (mouse)
+
+    const cleanupTimer = () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        row.classList.remove('long-pressing');
+    };
+
+    const onPointerDown = (e) => {
+        // Ignore right-click and the delete button
+        if (e.button === 2) return;
+        if (e.target.classList.contains('exercise-delete-btn')) return;
+
+        activePointerId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+        pointerDownTime = Date.now();
+        dragArmed = false;
+
+        if (e.pointerType === 'touch') {
+            // On touch: arm a long-press timer. While armed, we don't drag yet.
+            row.classList.add('long-pressing');
+            longPressTimer = setTimeout(() => {
+                longPressTimer = null;
+                row.classList.remove('long-pressing');
+                dragArmed = true;
+                beginDrag();
+                if (navigator.vibrate) navigator.vibrate(15);
+            }, 350);
+        }
+
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+        document.addEventListener('pointercancel', onPointerUp);
+    };
+
+    const beginDrag = () => {
+        const list = document.getElementById('exercise-list');
+        const rect = row.getBoundingClientRect();
+
+        // Snapshot every row's current top before we lift anything, so we can
+        // animate them with FLIP later when their positions change.
+        const otherRows = Array.from(list.querySelectorAll('.exercise-row'))
+            .filter(r => r !== row);
+
+        _exDrag = {
+            row,
+            list,
+            otherRows,
+            rowHeight: rect.height,
+            // Where on the row the pointer grabbed it (relative to row top).
+            // We preserve this offset throughout the drag so the row doesn't
+            // jump under the cursor when the DOM reorders.
+            grabOffsetY: startY - rect.top,
+            currentBeforeRow: null,
+        };
+
+        // Mark the row as the floating one. CSS handles the visual lift.
+        row.classList.add('dragging');
+        try { row.setPointerCapture(activePointerId); } catch (e) {}
+    };
+
+    const onPointerMove = (e) => {
+        if (e.pointerId !== activePointerId) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // On touch: any move > 8px before long-press fires cancels the long-press
+        // (treats it as a scroll attempt instead of a drag).
+        if (e.pointerType === 'touch' && longPressTimer && dist > 8) {
+            cleanupTimer();
+            return;
+        }
+
+        // On mouse: start dragging once we've moved past 5px.
+        if (e.pointerType !== 'touch' && !dragArmed && dist > 5) {
+            dragArmed = true;
+            beginDrag();
+        }
+
+        if (!dragArmed || !_exDrag) return;
+
+        e.preventDefault();
+
+        const pointerY = e.clientY;
+        const list = _exDrag.list;
+
+        // Helper: anchor the dragged row so the cursor stays at the same spot
+        // on it as where the user originally grabbed. We compute against the
+        // row's CURRENT natural layout position (without its own transform),
+        // which works correctly even after DOM reorders.
+        const anchorToPointer = () => {
+            // Temporarily remove transform to read the row's natural position
+            const prev = _exDrag.row.style.transform;
+            _exDrag.row.style.transform = '';
+            const naturalTop = _exDrag.row.getBoundingClientRect().top;
+            const desiredTop = pointerY - _exDrag.grabOffsetY;
+            _exDrag.row.style.transform = `translateY(${desiredTop - naturalTop}px)`;
+        };
+
+        // First, anchor the row to the pointer at its current DOM position.
+        anchorToPointer();
+
+        // Figure out which other-row's vertical midpoint the pointer is past,
+        // and swap the dragged row in front of it.
+        let insertBefore = null; // null → append at end
+        for (const other of _exDrag.otherRows) {
+            const r = other.getBoundingClientRect();
+            const mid = r.top + r.height / 2;
+            if (pointerY < mid) {
+                insertBefore = other;
+                break;
+            }
+        }
+
+        if (insertBefore !== _exDrag.currentBeforeRow) {
+            // FLIP: capture old positions of the OTHER rows (the ones that will
+            // shift), move the dragged row in the DOM, then animate them from
+            // their old positions to their new ones.
+            const movedRows = _exDrag.otherRows;
+            // Clear any leftover transforms before measuring so we get true
+            // layout positions, not animation-in-progress positions.
+            movedRows.forEach(r => { r.style.transition = 'none'; r.style.transform = ''; });
+            const firstRects = movedRows.map(r => r.getBoundingClientRect());
+
+            // Move the dragged row in the DOM. Its transform stays — anchorToPointer
+            // will be called again right after to re-anchor based on new position.
+            if (insertBefore) {
+                list.insertBefore(_exDrag.row, insertBefore);
+            } else {
+                list.appendChild(_exDrag.row);
+            }
+            _exDrag.currentBeforeRow = insertBefore;
+
+            // Re-anchor the dragged row to the pointer at its new DOM home.
+            anchorToPointer();
+
+            // Animate the other rows from their old layout positions to their new ones.
+            movedRows.forEach((r, i) => {
+                const last = r.getBoundingClientRect();
+                const delta = firstRects[i].top - last.top;
+                if (delta) {
+                    r.style.transition = 'none';
+                    r.style.transform = `translateY(${delta}px)`;
+                    requestAnimationFrame(() => {
+                        r.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
+                        r.style.transform = '';
+                    });
+                }
+            });
+        }
+    };
+
+    const onPointerUp = (e) => {
+        if (e.pointerId !== activePointerId) return;
+        cleanupTimer();
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+        document.removeEventListener('pointercancel', onPointerUp);
+
+        const wasDragging = !!_exDrag;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const elapsed = Date.now() - pointerDownTime;
+
+        if (wasDragging) {
+            // The DOM is already in the new order — read it back and persist.
+            const list = _exDrag.list;
+            const finalOrder = Array.from(list.querySelectorAll('.exercise-row'))
+                .map(r => r.querySelector('.exercise-row-name').textContent);
+
+            // Drop visual state. Clear inline styles on every row.
+            _exDrag.row.classList.remove('dragging');
+            _exDrag.row.style.transform = '';
+            _exDrag.otherRows.forEach(r => {
+                r.style.transition = '';
+                r.style.transform = '';
+            });
+            _exDrag = null;
+
+            persistExerciseOrder(finalOrder);
+        } else if (e.pointerType !== 'touch' && dist < 5 && elapsed < 500) {
+            openSetsScreen(exerciseName);
+        } else if (e.pointerType === 'touch' && dist < 8 && elapsed < 350) {
+            openSetsScreen(exerciseName);
+        }
+
+        activePointerId = null;
+        dragArmed = false;
+    };
+
+    row.addEventListener('pointerdown', onPointerDown);
+}
+
+function persistExerciseOrder(newOrder) {
+    const lib = getExerciseLibrary();
+    lib[activeMuscle] = newOrder;
+    saveExerciseLibrary(lib);
+
+    // Mirror into master library
+    const master = getMasterLibrary();
+    if (master[activeMuscle]) {
+        const archived = master._archived?.[activeMuscle] || [];
+        const newMaster = newOrder.slice();
+        master[activeMuscle].forEach(e => {
+            if (!newMaster.includes(e) && !archived.includes(e)) newMaster.push(e);
+        });
+        master[activeMuscle] = newMaster;
+        saveMasterLibrary(master);
+    }
+
+    // Re-render to refresh data attributes / event handlers cleanly
+    renderExerciseList();
 }
 
 function deleteExercise(ex) {
@@ -1426,7 +1798,7 @@ function renderSpiritualList() {
 
         const topic = document.createElement('span');
         topic.className = 'sp-entry-topic';
-        topic.textContent = entry.topic || 'UNTITLED';
+        topic.textContent = entry.topic || 'Untitled';
 
         const del = document.createElement('button');
         del.className = 'exercise-delete-btn';
@@ -1541,7 +1913,7 @@ function renderJournalList(type) {
 
         const topic = document.createElement('span');
         topic.className = 'sp-entry-topic';
-        topic.textContent = entry.topic || 'UNTITLED';
+        topic.textContent = entry.topic || 'Untitled';
 
         const del = document.createElement('button');
         del.className = 'exercise-delete-btn';
@@ -1771,11 +2143,16 @@ document.getElementById('msBackToType').onclick = () => showMsScreen('ms-screen-
     };
 });
 
-const AVOIDED_ENTRIES_KEY = 'avoided_entries';
 let activeAvoidedActivity = null;
 
+// Returns the entries-storage key for whichever mixer mode is currently active.
+// Sins write to 'avoided_entries', virtues to 'virtue_entries'.
+function getActiveEntriesKey() {
+    return getMixerConfig(getMixerMode()).entriesKey;
+}
+
 function getAvoidedEntries() {
-    try { return JSON.parse(Storage.getItem(AVOIDED_ENTRIES_KEY)) || {}; }
+    try { return JSON.parse(Storage.getItem(getActiveEntriesKey())) || {}; }
     catch(e) { return {}; }
 }
 
@@ -1788,10 +2165,23 @@ function openAvoidedModal(activity) {
     activeAvoidedActivity = activity;
     document.getElementById('avoidedModalTitle').textContent = activity.toUpperCase();
     const entry = getAvoidedEntry(activity);
-    document.getElementById('avoidedWhatHappened').value = entry ? entry.happened : '';
-    document.getElementById('avoidedWhatLearned').value = entry ? entry.learned : '';
+    // Backward-compat: old entries had { happened, learned }; new ones have { notes }.
+    // If an old entry exists, merge the two fields into the single notes field
+    // so nothing is lost.
+    let notesText = '';
+    if (entry) {
+        if (entry.notes !== undefined) {
+            notesText = entry.notes;
+        } else {
+            const parts = [];
+            if (entry.happened) parts.push(entry.happened);
+            if (entry.learned) parts.push(entry.learned);
+            notesText = parts.join('\n\n');
+        }
+    }
+    document.getElementById('avoidedNotes').value = notesText;
     document.getElementById('avoidedModal').style.display = 'flex';
-    setTimeout(() => document.getElementById('avoidedWhatHappened').focus(), 50);
+    setTimeout(() => document.getElementById('avoidedNotes').focus(), 50);
 }
 
 function closeAvoidedModal() {
@@ -1800,18 +2190,19 @@ function closeAvoidedModal() {
 }
 
 document.getElementById('avoidedSaveBtn').addEventListener('click', function() {
-    const happened = document.getElementById('avoidedWhatHappened').value.trim();
-    const learned = document.getElementById('avoidedWhatLearned').value.trim();
+    const notes = document.getElementById('avoidedNotes').value.trim();
     const key = getDateKey(viewDate) + '__' + activeAvoidedActivity;
-    const all = getAvoidedEntries();
+    const entriesKey = getActiveEntriesKey();
+    let all = {};
+    try { all = JSON.parse(Storage.getItem(entriesKey)) || {}; } catch(e) {}
 
-    if (happened || learned) {
-        all[key] = { happened, learned };
+    if (notes) {
+        all[key] = { notes };
     } else {
         delete all[key];
     }
 
-    Storage.setItem(AVOIDED_ENTRIES_KEY, JSON.stringify(all));
+    Storage.setItem(entriesKey, JSON.stringify(all));
     renderSinsMixer();
     closeAvoidedModal();
 });

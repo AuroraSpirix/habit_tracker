@@ -248,6 +248,34 @@ svg {
     padding: 0 4px;
 }
 
+/* ─── Mode toggle button ─────────────────────────────────────────
+   Skinny vertical bar on the far left of the mixer. Tap to switch
+   between sins and Christ-like attributes. */
+.mixer-toggle {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    padding: 0;
+    width: 7px;
+    height: 60px;
+    /* Center vertically with the slider track. The mixer row uses
+       align-items: flex-end, so we override per-item alignment here
+       and nudge upward to sit centered against the slider+label group. */
+    align-self: center;
+    margin-bottom: 14px;
+    transition: all var(--transition);
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    margin-right: 8px;
+}
+
+.mixer-toggle:hover {
+    border-color: var(--gold-dim);
+    background: var(--gold-dim);
+}
+
 .sin-slot {
     display: flex;
     flex-direction: column;
@@ -268,10 +296,12 @@ svg {
     transition: color var(--transition);
     text-align: center;
     line-height: 1.2;
-    height: 1.2em;
+    min-height: 1.2em;
     user-select: none;
     -webkit-user-select: none;
-    white-space: nowrap;
+    /* Allow long virtue names to wrap rather than overflow the slot */
+    white-space: normal;
+    word-break: break-word;
 }
 
 .sin-label:hover { color: var(--text); }
@@ -334,17 +364,14 @@ svg {
     width: 20px;
     height: 6px;
     background: #888;
-    border: 1px solid #000;
-    border-radius: 3px;
-    box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.25),
-        inset 0 -1px 0 rgba(0,0,0,0.4),
-        0 1px 4px rgba(0,0,0,0.6);
+    border: none;
+    border-radius: 2px;
+    box-shadow: none;
     pointer-events: none;
     transition: background 0.15s ease;
 }
 .sin-slider-thumb.has-value {
-    background: #c9c5bc;
+    background: var(--text);
 }
 
 .sin-value {
@@ -359,10 +386,27 @@ svg {
 .sin-value.has-value { color: var(--text); }
 
 @media (max-width: 480px) {
-    #sins-mixer { gap: 4px; }
-    .sin-slot { max-width: 46px; }
-    .sin-label { font-size: 0.46rem; letter-spacing: 0.08em; }
-    .sin-slider-wrap { width: 24px; height: 80px; }
+    #sins-mixer { gap: 3px; padding: 0 2px; }
+    .sin-slot { max-width: 36px; gap: 6px; }
+    /* Allow wrapping on mobile because virtue names ("Knowledge", "Integrity",
+       "Patience"…) overflow the 36px slot. height:auto + line-height:1.1
+       keeps the row aligned even when one label wraps to two lines. */
+    .sin-label {
+        font-size: 0.42rem;
+        letter-spacing: 0.06em;
+        white-space: normal;
+        line-height: 1.15;
+        height: auto;
+        min-height: 1.15em;
+        word-break: break-word;
+    }
+    .sin-slider-wrap { width: 20px; height: 80px; }
+    .mixer-toggle {
+        width: 5px;
+        height: 48px;
+        margin-right: 6px;
+        margin-bottom: 12px;
+    }
 }
 
 button {
@@ -743,6 +787,39 @@ button:hover {
 
 .exercise-row.has-data { border-color: rgba(61,220,132,0.3); }
 
+/* ─── Drag-to-reorder states ─────────────────────────────────────── */
+.exercise-row {
+    touch-action: pan-y; /* allow vertical scrolling but we'll override on long-press */
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* While being dragged: lift visually with a shadow + gold border, but DON'T
+   scale (scaling makes the row wider than its container and triggers a
+   horizontal scrollbar on narrow screens). */
+.exercise-row.dragging {
+    opacity: 0.95;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.55);
+    border-color: var(--gold-dim);
+    background: var(--surface-3);
+    z-index: 10;
+    position: relative;
+    cursor: grabbing;
+    transition: none !important; /* no transition on the row that follows the pointer */
+    will-change: transform;
+}
+
+/* Slight pulse while waiting for the long-press timer to fire on mobile */
+.exercise-row.long-pressing {
+    background: var(--surface-3);
+    border-color: var(--border-bright);
+}
+
+/* Keep the list from showing a horizontal scrollbar while dragging */
+.exercise-list {
+    overflow-x: hidden;
+}
+
 .exercise-row-name {
     font-family: var(--font-mono);
     font-size: 0.8rem;
@@ -886,9 +963,17 @@ button:hover {
 /* Smaller inputs on mobile so three steppers + an input still fit comfortably */
 @media (max-width: 640px) {
     .set-input {
-        width: 52px;
-        font-size: 0.82rem;
-        padding: 9px 4px;
+        width: 38px;
+        font-size: 0.75rem;
+        padding: 7px 2px;
+    }
+    .set-stepper {
+        width: 26px;
+        height: 32px;
+        font-size: 0.9rem;
+    }
+    .set-input-group {
+        gap: 4px;
     }
 }
 
@@ -1043,9 +1128,8 @@ button:hover {
 .sp-entry-topic {
     font-family: var(--font-mono);
     font-size: 0.8rem;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.05em;
     color: var(--text-muted);
-    text-transform: uppercase;
     flex: 1;
     text-align: left;
     white-space: nowrap;
@@ -1075,6 +1159,7 @@ button:hover {
 .field-label-gap { margin-top: 16px; }
 
 .avoided-textarea { height: 90px; }
+.avoided-textarea-single { height: 200px; }
 .avoided-save-btn { margin-top: 16px; }
 
 .gratitude-fields {
