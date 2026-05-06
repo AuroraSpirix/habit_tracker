@@ -835,41 +835,6 @@ function renderSinsMixer(opts) {
 
     container.innerHTML = '';
 
-    // ─── Mode toggle: labeled segmented pill ───────────────────────
-    // Two labels (SINS / VIRTUES) inside a pill, with a sliding indicator
-    // behind the active one. Lives in its own row above the sliders so it
-    // doesn't steal horizontal space from the slots. Created once and
-    // re-used across renders so its sliding indicator can transition.
-    let toggleHost = container.parentElement.querySelector('.mixer-toggle-host');
-    if (!toggleHost) {
-        toggleHost = document.createElement('div');
-        toggleHost.className = 'mixer-toggle-host';
-        const pill = document.createElement('button');
-        pill.className = 'mixer-toggle';
-        pill.type = 'button';
-        pill.innerHTML = `
-            <span class="mixer-toggle-indicator" aria-hidden="true"></span>
-            <span class="mixer-toggle-label" data-mode="sins">SINS</span>
-            <span class="mixer-toggle-label" data-mode="virtues">VIRTUES</span>
-        `;
-        toggleHost.appendChild(pill);
-        container.parentElement.insertBefore(toggleHost, container);
-
-        pill.addEventListener('click', (e) => {
-            const labelEl = e.target.closest('.mixer-toggle-label');
-            const currentMode = getMixerMode();
-            const nextMode = labelEl
-                ? labelEl.dataset.mode
-                : (currentMode === 'sins' ? 'virtues' : 'sins');
-            if (nextMode === currentMode) return;
-            setMixerMode(nextMode);
-            renderSinsMixer({ animateFrom: currentMode });
-        });
-    }
-    const pill = toggleHost.querySelector('.mixer-toggle');
-    pill.dataset.mode = mode;
-    pill.setAttribute('aria-label', mode === 'sins' ? 'Switch to virtues' : 'Switch to sins');
-
     cfg.list.forEach(activity => {
         const slot = document.createElement('div');
         slot.className = 'sin-slot';
@@ -931,19 +896,39 @@ function renderSinsMixer(opts) {
         };
 
         // Pointer-based drag — relative-delta, so clicks don't snap the thumb.
+        // Each slider checks the shared swipe flag (set by the container-level
+        // swipe detector) and bails out if a horizontal swipe is in progress,
+        // reverting any value change it made.
         let dragging = false;
         let startClientY = 0;
+        let startClientX = 0;
         let startValue = 0;
 
         const onPointerDown = (e) => {
             e.preventDefault();
             dragging = true;
             startClientY = e.clientY;
+            startClientX = e.clientX;
             startValue = currentValue;
             wrap.setPointerCapture && wrap.setPointerCapture(e.pointerId);
         };
         const onPointerMove = (e) => {
             if (!dragging) return;
+
+            // If a swipe was just declared, abort: revert the value to what it
+            // was at gesture start, release capture so the swipe handler gets
+            // the rest of the gesture, and stop tracking.
+            if (window.__mixerSwipeActive) {
+                if (currentValue !== startValue) {
+                    currentValue = startValue;
+                    setLevel(cfg.levelsKey, activity, startValue);
+                    sync();
+                }
+                dragging = false;
+                try { wrap.releasePointerCapture && wrap.releasePointerCapture(e.pointerId); } catch (_) {}
+                return;
+            }
+
             e.preventDefault();
             const rect = wrap.getBoundingClientRect();
             const inset = 8;
@@ -961,7 +946,7 @@ function renderSinsMixer(opts) {
         const onPointerUp = (e) => {
             if (!dragging) return;
             dragging = false;
-            wrap.releasePointerCapture && wrap.releasePointerCapture(e.pointerId);
+            try { wrap.releasePointerCapture && wrap.releasePointerCapture(e.pointerId); } catch (_) {}
         };
 
         wrap.addEventListener('pointerdown', onPointerDown);
@@ -981,25 +966,95 @@ function renderSinsMixer(opts) {
     });
 
     // ─── Entry animation on mode switch ────────────────────────────
-    // When toggling between sins/virtues, animate the new slots in with
-    // a staggered slide. Direction depends on which way we came from so
-    // it feels like the rows physically pass each other.
+    // When toggling between sins/virtues, slide the whole row in from the
+    // side opposite the swipe direction. Direction is passed through as
+    // 'left' or 'right' (the swipe direction); the new row enters from
+    // the opposite side.
     if (animateFrom) {
-        const direction = animateFrom === 'sins' ? -1 : 1; // virtues come up, sins come down
-        const slots = container.querySelectorAll('.sin-slot');
-        slots.forEach((s, i) => {
-            s.style.setProperty('--enter-dir', direction);
-            s.style.setProperty('--enter-delay', (i * 28) + 'ms');
-            s.classList.add('mixer-enter');
-            // Force reflow so the animation actually plays on the freshly added node
-            // eslint-disable-next-line no-unused-expressions
-            s.offsetWidth;
-            s.classList.add('mixer-enter-active');
-            s.addEventListener('animationend', () => {
-                s.classList.remove('mixer-enter', 'mixer-enter-active');
-                s.style.removeProperty('--enter-dir');
-                s.style.removeProperty('--enter-delay');
-            }, { once: true });
+        const slideDir = animateFrom === 'left' ? -1 : 1;
+        container.style.setProperty('--slide-dir', slideDir);
+        container.classList.add('mixer-row-enter');
+        container.addEventListener('animationend', () => {
+            container.classList.remove('mixer-row-enter');
+            container.style.removeProperty('--slide-dir');
+        }, { once: true });
+    }
+
+    // ─── Swipe-to-switch ────────────────────────────────────────────
+    // Set up once. Detects horizontal-dominant gestures anywhere on the
+    // slider row. Sets a global flag so individual sliders can abort
+    // their vertical-drag handling and revert any half-applied value.
+    if (!container.__swipeBound) {
+        container.__swipeBound = true;
+        const SWIPE_THRESHOLD = 40;     // px of horizontal travel to commit a switch
+        const DECISION_THRESHOLD = 12;  // px of motion before we decide direction
+
+        let startX = 0, startY = 0;
+        let tracking = false;
+        let decided = false; // 'horizontal' | 'vertical' | false
+
+        container.addEventListener('pointerdown', (e) => {
+            tracking = true;
+            decided = false;
+            window.__mixerSwipeActive = false;
+            startX = e.clientX;
+            startY = e.clientY;
+        });
+
+        container.addEventListener('pointermove', (e) => {
+            if (!tracking) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            if (!decided) {
+                // Wait until the gesture moves enough to classify it.
+                if (Math.abs(dx) < DECISION_THRESHOLD && Math.abs(dy) < DECISION_THRESHOLD) return;
+                decided = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
+                if (decided === 'horizontal') {
+                    window.__mixerSwipeActive = true;
+                }
+            }
+        });
+
+        const endSwipe = (e) => {
+            if (!tracking) return;
+            const wasHorizontal = decided === 'horizontal';
+            tracking = false;
+            decided = false;
+            if (!wasHorizontal) {
+                window.__mixerSwipeActive = false;
+                return;
+            }
+            const dx = e.clientX - startX;
+            const currentMode = getMixerMode();
+            // Either direction switches — there are only two modes, so swipe
+            // direction is purely conventional. We just toggle on any
+            // horizontal swipe past the threshold.
+            if (Math.abs(dx) >= SWIPE_THRESHOLD) {
+                const nextMode = currentMode === 'sins' ? 'virtues' : 'sins';
+                // Swipe direction drives the slide: dx<0 = left swipe → row
+                // exits to the left, new row enters from the right.
+                const swipeDir = dx < 0 ? 'left' : 'right';
+                const slideDir = swipeDir === 'left' ? -1 : 1;
+                container.style.setProperty('--slide-dir', slideDir);
+                container.classList.add('mixer-row-exit');
+                const onExitEnd = () => {
+                    container.classList.remove('mixer-row-exit');
+                    setMixerMode(nextMode);
+                    renderSinsMixer({ animateFrom: swipeDir });
+                };
+                container.addEventListener('animationend', onExitEnd, { once: true });
+            }
+            // Reset the flag *after* the render so any in-flight slider
+            // pointermove (about to bail) still sees true.
+            setTimeout(() => { window.__mixerSwipeActive = false; }, 0);
+        };
+
+        container.addEventListener('pointerup', endSwipe);
+        container.addEventListener('pointercancel', endSwipe);
+        container.addEventListener('pointerleave', (e) => {
+            // If the pointer leaves the row mid-swipe without an up event
+            // (rare, but possible on edge cases), treat it as the end.
+            if (tracking) endSwipe(e);
         });
     }
 }
