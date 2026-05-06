@@ -113,7 +113,7 @@ body::before {
 #day-name {
     display: block;
     font-family: var(--font-display);
-    font-size: 2rem;
+    font-size: 1.75rem;
     font-weight: 400;
     letter-spacing: 0.12em;
     color: var(--text);
@@ -134,14 +134,14 @@ body::before {
 
 .chart-container {
     background: transparent;
-    padding: 1.5rem 2rem 1rem;
+    padding: 1em 2rem 1rem;
     text-align: center;
     user-select: none;
     -webkit-user-select: none;
     position: relative;
     width: 100%;
 }
-
+    
 .chart-container::before {
     content: '';
     position: absolute;
@@ -248,48 +248,82 @@ svg {
     padding: 0 4px;
 }
 
-/* ─── Mode toggle button ─────────────────────────────────────────
-   Skinny vertical bar on the far left of the mixer. Tap to switch
-   between sins and Christ-like attributes. */
+/* ─── Mode toggle: minimal flat pill ─────────────────────────────
+   Two-position toggle. No labels — the indicator's position alone
+   shows the mode (left = sins, right = virtues). The user remembers
+   which side is which. */
+.mixer-toggle-host {
+    display: flex;
+    justify-content: center;
+    margin: 0 auto 16px;
+}
+
 .mixer-toggle {
+    position: relative;
+    display: block;
+    width: 56px;
+    height: 18px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 2px;
-    cursor: pointer;
+    border-radius: 999px;
     padding: 0;
-    width: 7px;
-    height: 60px;
-    /* Center vertically with the slider track. The mixer row uses
-       align-items: flex-end, so we override per-item alignment here
-       and nudge upward to sit centered against the slider+label group. */
-    align-self: center;
-    margin-bottom: 14px;
-    transition: all var(--transition);
-    flex-shrink: 0;
+    cursor: pointer;
     user-select: none;
     -webkit-user-select: none;
-    margin-right: 8px;
+    transition: border-color var(--transition);
 }
 
 .mixer-toggle:hover {
-    border-color: var(--gold-dim);
-    background: var(--gold-dim);
+    border-color: var(--border-bright);
 }
+
+/* Sliding indicator — a single small dot that moves between the two
+   halves. Flat: no glow, no border, just a solid gold pip. */
+.mixer-toggle-indicator {
+    position: absolute;
+    top: 50%;
+    left: 3px;
+    width: 12px;
+    height: 12px;
+    margin-top: -6px;
+    background: var(--gold);
+    border-radius: 50%;
+    transition: transform var(--transition);
+    pointer-events: none;
+}
+
+.mixer-toggle[data-mode="virtues"] .mixer-toggle-indicator {
+    /* Slide to the right half: full width minus dot width minus both gutters */
+    transform: translateX(38px);
+}
+
+/* Hide the labels entirely — kept in the DOM for click-to-jump behavior
+   in the JS, but not visually rendered. */
+.mixer-toggle-label {
+    position: absolute;
+    width: 50%;
+    height: 100%;
+    top: 0;
+    font-size: 0;
+    color: transparent;
+}
+.mixer-toggle-label[data-mode="sins"]    { left: 0; }
+.mixer-toggle-label[data-mode="virtues"] { right: 0; }
 
 .sin-slot {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex: 1;
     min-width: 0;
-    max-width: 64px;
+    max-width: 52px;
 }
 
 .sin-label {
     font-family: var(--font-mono);
     font-size: 0.52rem;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     color: var(--text-muted);
     text-transform: uppercase;
     cursor: pointer;
@@ -317,8 +351,8 @@ svg {
    quirks of rotating native sliders. */
 .sin-slider-wrap {
     position: relative;
-    width: 28px;
-    height: 100px;
+    width: 22px;
+    height: 84px;
     cursor: pointer;
     touch-action: none;
     user-select: none;
@@ -361,8 +395,8 @@ svg {
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
-    width: 20px;
-    height: 6px;
+    width: 16px;
+    height: 5px;
     background: #888;
     border: none;
     border-radius: 2px;
@@ -385,6 +419,41 @@ svg {
 }
 .sin-value.has-value { color: var(--text); }
 
+/* ─── Mode-switch entrance animation ──────────────────────────────
+   When switching sins ↔ virtues, the freshly rendered slots slide in
+   from above (sins → virtues) or below (virtues → sins) with a small
+   per-slot stagger so the row "rolls" into place. --enter-dir is
+   set inline by JS: -1 = come from below, +1 = come from above. */
+@keyframes mixer-slot-enter {
+    from {
+        opacity: 0;
+        transform: translateY(calc(var(--enter-dir, 1) * 28px));
+        filter: blur(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+}
+
+.sin-slot.mixer-enter {
+    opacity: 0;
+}
+
+.sin-slot.mixer-enter-active {
+    animation: mixer-slot-enter 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--enter-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sin-slot.mixer-enter-active {
+        animation: none;
+        opacity: 1;
+    }
+    .mixer-toggle-indicator { transition: none; }
+}
+
 @media (max-width: 480px) {
     #sins-mixer { gap: 3px; padding: 0 2px; }
     .sin-slot { max-width: 36px; gap: 6px; }
@@ -401,11 +470,11 @@ svg {
         word-break: break-word;
     }
     .sin-slider-wrap { width: 20px; height: 80px; }
-    .mixer-toggle {
-        width: 5px;
-        height: 48px;
-        margin-right: 6px;
-        margin-bottom: 12px;
+    .mixer-toggle-host { margin-bottom: 14px; }
+    .mixer-toggle-label {
+        padding: 5px 14px;
+        font-size: 0.52rem;
+        letter-spacing: 0.18em;
     }
 }
 
@@ -974,6 +1043,17 @@ button:hover {
     }
     .set-input-group {
         gap: 4px;
+    }
+    /* Pull "SET 1/2/3" labels closer to the inputs by shrinking their
+       reserved width and the row gap. Frees up horizontal space for the
+       weight/rep group on narrow phones. */
+    .set-label {
+        width: 32px;
+        font-size: 0.5rem;
+        letter-spacing: 0.12em;
+    }
+    .set-row {
+        gap: 6px;
     }
 }
 

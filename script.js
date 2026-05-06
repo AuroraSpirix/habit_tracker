@@ -110,7 +110,7 @@ const defaultValues = [
 ];
 
 const avoidedActivitiesList = ['Pride', 'Greed', 'Lust', 'Envy', 'Gluttony', 'Wrath', 'Sloth'];
-const christLikeAttributesList = ['Faith', 'Hope', 'Charity', 'Virtue', 'Knowledge', 'Patience', 'Humility', 'Diligence', 'Obedience', 'Integrity'];
+const christLikeAttributesList = ['Faith', 'Hope', 'Charity', 'Patience', 'Humility', 'Diligence', 'Integrity'];
 let avoidedToday = []; // legacy — kept so old saved data still loads cleanly
 const SIN_LEVELS_KEY = 'sin_levels';
 const VIRTUE_LEVELS_KEY = 'virtue_levels';
@@ -820,28 +820,55 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-function renderSinsMixer() {
+function renderSinsMixer(opts) {
     const container = document.getElementById('sins-mixer');
     if (!container) return;
-    container.innerHTML = '';
 
+    const animateFrom = opts && opts.animateFrom; // 'sins' | 'virtues' | undefined
     const mode = getMixerMode();
     const cfg = getMixerConfig(mode);
     const levels = getLevelsForDay(cfg.levelsKey);
-    const entries = getAllLevels(cfg.entriesKey); // entries is a flat map keyed by `${date}__${activity}`
+    const entries = getAllLevels(cfg.entriesKey);
 
-    // ─── Mode toggle: vertical button on the far left ──────────────
-    // Click cycles between sins ↔ virtues. The button label shows the
-    // mode you'll switch TO (so you know what tapping does). Vertical
-    // orientation keeps it narrow so it doesn't steal slider space.
-    const toggle = document.createElement('button');
-    toggle.className = 'mixer-toggle';
-    toggle.setAttribute('aria-label', mode === 'sins' ? 'Switch to virtues' : 'Switch to sins');
-    toggle.onclick = () => {
-        setMixerMode(mode === 'sins' ? 'virtues' : 'sins');
-        renderSinsMixer();
-    };
-    container.appendChild(toggle);
+    // Tag the container so CSS can theme based on mode if we ever want to
+    container.dataset.mode = mode;
+
+    container.innerHTML = '';
+
+    // ─── Mode toggle: labeled segmented pill ───────────────────────
+    // Two labels (SINS / VIRTUES) inside a pill, with a sliding indicator
+    // behind the active one. Lives in its own row above the sliders so it
+    // doesn't steal horizontal space from the slots. Created once and
+    // re-used across renders so its sliding indicator can transition.
+    let toggleHost = container.parentElement.querySelector('.mixer-toggle-host');
+    if (!toggleHost) {
+        toggleHost = document.createElement('div');
+        toggleHost.className = 'mixer-toggle-host';
+        const pill = document.createElement('button');
+        pill.className = 'mixer-toggle';
+        pill.type = 'button';
+        pill.innerHTML = `
+            <span class="mixer-toggle-indicator" aria-hidden="true"></span>
+            <span class="mixer-toggle-label" data-mode="sins">SINS</span>
+            <span class="mixer-toggle-label" data-mode="virtues">VIRTUES</span>
+        `;
+        toggleHost.appendChild(pill);
+        container.parentElement.insertBefore(toggleHost, container);
+
+        pill.addEventListener('click', (e) => {
+            const labelEl = e.target.closest('.mixer-toggle-label');
+            const currentMode = getMixerMode();
+            const nextMode = labelEl
+                ? labelEl.dataset.mode
+                : (currentMode === 'sins' ? 'virtues' : 'sins');
+            if (nextMode === currentMode) return;
+            setMixerMode(nextMode);
+            renderSinsMixer({ animateFrom: currentMode });
+        });
+    }
+    const pill = toggleHost.querySelector('.mixer-toggle');
+    pill.dataset.mode = mode;
+    pill.setAttribute('aria-label', mode === 'sins' ? 'Switch to virtues' : 'Switch to sins');
 
     cfg.list.forEach(activity => {
         const slot = document.createElement('div');
@@ -891,7 +918,7 @@ function renderSinsMixer() {
 
             const wrapH = wrap.clientHeight || 100;
             const inset = 8;
-            const thumbH = 10;
+            const thumbH = 5;
             const usable = wrapH - inset * 2;
             const fillTopPx = inset + (currentValue / 10) * usable;
             thumb.style.bottom = (fillTopPx - thumbH / 2) + 'px';
@@ -952,6 +979,29 @@ function renderSinsMixer() {
 
         sync();
     });
+
+    // ─── Entry animation on mode switch ────────────────────────────
+    // When toggling between sins/virtues, animate the new slots in with
+    // a staggered slide. Direction depends on which way we came from so
+    // it feels like the rows physically pass each other.
+    if (animateFrom) {
+        const direction = animateFrom === 'sins' ? -1 : 1; // virtues come up, sins come down
+        const slots = container.querySelectorAll('.sin-slot');
+        slots.forEach((s, i) => {
+            s.style.setProperty('--enter-dir', direction);
+            s.style.setProperty('--enter-delay', (i * 28) + 'ms');
+            s.classList.add('mixer-enter');
+            // Force reflow so the animation actually plays on the freshly added node
+            // eslint-disable-next-line no-unused-expressions
+            s.offsetWidth;
+            s.classList.add('mixer-enter-active');
+            s.addEventListener('animationend', () => {
+                s.classList.remove('mixer-enter', 'mixer-enter-active');
+                s.style.removeProperty('--enter-dir');
+                s.style.removeProperty('--enter-delay');
+            }, { once: true });
+        });
+    }
 }
 
 const EXERCISE_LIBRARY_KEY = 'exercise_library';
@@ -1106,13 +1156,37 @@ function renderMuscleGrid() {
         const btn = document.createElement('button');
         btn.className = 'muscle-btn';
         const noteKey = getMobilitySimpleKey(type);
-        if (simpleNotes[noteKey] && simpleNotes[noteKey].trim()) btn.classList.add('has-data');
+        // Yoga/Posture are now boolean toggles instead of note-opening buttons.
+        // Any truthy value (including legacy free-text notes) counts as "done".
+        const isDone = !!(simpleNotes[noteKey] && String(simpleNotes[noteKey]).trim());
+        if (isDone) btn.classList.add('has-data');
         btn.textContent = type.toUpperCase();
-        btn.onclick = () => openSimpleScreen(type);
+        btn.onclick = () => toggleMobilityExtra(type);
         extras.appendChild(btn);
     });
 }
 
+// Toggle a mobility extra (Yoga / Posture) on or off for the current day.
+// '1' means done; deleting the key means not done. We store under the same
+// key the old notes feature used so historical "done" days carry over.
+function toggleMobilityExtra(type) {
+    const notes = getMobilitySimpleNotes();
+    const key = getMobilitySimpleKey(type);
+    const wasDone = !!(notes[key] && String(notes[key]).trim());
+    if (wasDone) {
+        delete notes[key];
+    } else {
+        notes[key] = '1';
+    }
+    saveMobilitySimpleNotes(notes);
+    refreshChartAfterDataChange();
+    renderMuscleGrid();
+}
+
+// Legacy openSimpleScreen / save handler are no longer reachable from the
+// muscle grid (Yoga/Posture toggle in place now), but the screen itself
+// stays in the DOM in case some other code path opens it. We leave the
+// open/save functions in place defensively.
 function openSimpleScreen(type) {
     document.getElementById('ex-simple-title').textContent = type.toUpperCase();
     const notes = getMobilitySimpleNotes();
