@@ -203,7 +203,14 @@ function isCategoryCompleted(catName) {
         const entries = all[getDateKey(viewDate)] || [];
         return entries.some(e => e.topic || e.notes);
     }
-    if (['Mindfulness', 'Recovery', 'Reflection'].includes(catName)) {
+    if (catName === 'Recovery') {
+        const raw = Storage.getItem('recovery_data');
+        if (!raw) return false;
+        const all = JSON.parse(raw);
+        const day = all[getDateKey(viewDate)] || {};
+        return !!(day.nutrition != null || day.hydration || day.cryotherapy || day.sleep != null);
+    }
+    if (['Mindfulness', 'Reflection'].includes(catName)) {
         const all = JSON.parse(Storage.getItem('journal_entries__' + catName.toLowerCase()) || '{}');
         const entries = all[getDateKey(viewDate)] || [];
         return entries.some(e => e.topic || e.notes);
@@ -766,15 +773,6 @@ function renderCalendar() {
 }
 
 
-document.getElementById('prevMonth').onclick = () => {
-    calendarDate.setMonth(calendarDate.getMonth() - 1);
-    renderCalendar();
-};
-document.getElementById('nextMonth').onclick = () => {
-    calendarDate.setMonth(calendarDate.getMonth() + 1);
-    renderCalendar();
-};
-
 // ── Calendar drag-to-switch: 3-panel sliding track ───────────────────────────
 (function () {
     const COMMIT_THRESHOLD = 60;
@@ -850,7 +848,7 @@ document.getElementById('nextMonth').onclick = () => {
         if (onDone) swipeTrack.addEventListener('transitionend', onDone, { once: true });
     }
 
-    let startX = 0, startY = 0, tracking = false, dragging = false, currentDx = 0, capturedId = null;
+    let startX = 0, startY = 0, tracking = false, dragging = false, currentDx = 0, capturedId = null, transitioning = false;
 
     calContent.addEventListener('pointerdown', (e) => {
         if (e.target.tagName === 'BUTTON' || tracking) return;
@@ -901,6 +899,24 @@ document.getElementById('nextMonth').onclick = () => {
 
     calContent.addEventListener('pointerup',     endDrag);
     calContent.addEventListener('pointercancel', endDrag);
+
+    function animateMonth(goNext) {
+        if (transitioning) return;
+        transitioning = true;
+        const target = new Date(calendarDate);
+        target.setMonth(target.getMonth() + (goNext ? 1 : -1));
+        renderInto(goNext ? panelNext : panelPrev, target.getFullYear(), target.getMonth());
+        const w = swipeWrap.offsetWidth;
+        animateTo(goNext ? -(w + 16) : (w + 16), () => {
+            transitioning = false;
+            calendarDate.setMonth(calendarDate.getMonth() + (goNext ? 1 : -1));
+            renderCalendar();
+            setPos(0);
+        });
+    }
+
+    document.getElementById('prevMonth').onclick = () => animateMonth(false);
+    document.getElementById('nextMonth').onclick = () => animateMonth(true);
 })();
 
 const noteModal = document.getElementById('noteModal');
@@ -913,7 +929,7 @@ function openNoteModal(index) {
     if (cat.name === 'Mobility') { openExerciseModal(); return; }
     if (cat.name === 'Spirituality') { openSpiritualModal(); return; }
     if (cat.name === 'Mindfulness') { openJournalModal('mindfulness'); return; }
-    if (cat.name === 'Recovery') { openJournalModal('recovery'); return; }
+    if (cat.name === 'Recovery') { openRecoveryModal(); return; }
     if (cat.name === 'Reflection') { openJournalModal('reflection'); return; }
     if (cat.name === 'Mindset') { openMindsetModal(); return; }
     activeNoteIdx = index;
@@ -2057,7 +2073,6 @@ function openSpiritualModal() {
 const JOURNAL_CONFIGS = {
     spiritual:   { key: 'spiritual_entries',            modalId: 'spiritualModal',    prefix: 'sp' },
     mindfulness: { key: 'journal_entries__mindfulness', modalId: 'mindfulnessModal',  prefix: 'mf' },
-    recovery:    { key: 'journal_entries__recovery',    modalId: 'recoveryModal',     prefix: 'rc' },
     reflection:  { key: 'journal_entries__reflection',  modalId: 'reflectionModal',   prefix: 'rf' },
 };
 let activeJournalType = null;
@@ -2093,12 +2108,19 @@ function showJournalScreen(id) {
 
 function collapseEntryWrapper(w) {
     w.classList.add('entry-collapsing');
-    setTimeout(() => { w.style.display = 'none'; }, 200);
 }
 
 function expandEntryWrapper(w) {
-    w.style.display = '';
-    requestAnimationFrame(() => requestAnimationFrame(() => w.classList.remove('entry-collapsing')));
+    w.classList.remove('entry-collapsing');
+}
+
+function closeOpenPanel(list, callback) {
+    const panel = list.querySelector('.inline-notes-panel.open');
+    if (!panel) { callback(); return; }
+    panel.classList.remove('open');
+    panel.previousElementSibling?.classList.remove('open');
+    list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+    setTimeout(callback, 420);
 }
 
 function renderJournalList(type) {
@@ -2106,7 +2128,7 @@ function renderJournalList(type) {
     const list = document.getElementById(cfg.prefix + '-entry-list');
     list.innerHTML = '';
     const entries = getJournalEntries(type);
-    const isInline = ['mindfulness', 'recovery', 'reflection'].includes(type);
+    const isInline = ['mindfulness', 'recovery', 'reflection', 'spiritual'].includes(type);
 
     if (entries.length === 0) {
         list.innerHTML = '<p class="empty-state">No entries yet.</p>';
@@ -2145,6 +2167,8 @@ function renderJournalList(type) {
 
         if (isInline) {
             wrapper.className = 'entry-wrapper';
+            const inner = document.createElement('div');
+            inner.className = 'entry-inner';
 
             const panel = document.createElement('div');
             panel.className = 'inline-notes-panel';
@@ -2177,7 +2201,51 @@ function renderJournalList(type) {
             panel.appendChild(ta);
             panel.appendChild(closeBtn);
 
-            row.onclick = () => {
+            // Long-press to rename
+            let pressTimer = null;
+            let renameTriggered = false;
+            row.addEventListener('contextmenu', e => e.preventDefault());
+            row.addEventListener('pointerdown', (e) => {
+                if (e.target.closest('.exercise-delete-btn')) return;
+                if (panel.classList.contains('open')) return;
+                renameTriggered = false;
+                pressTimer = setTimeout(() => {
+                    renameTriggered = true;
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'entry-rename-input';
+                    input.value = entry.topic || '';
+                    topic.replaceWith(input);
+                    input.focus(); input.select();
+                    let done = false;
+                    const commit = (save) => {
+                        if (done) return; done = true;
+                        const newName = input.value.trim();
+                        if (save && newName && newName !== (entry.topic || '')) {
+                            const all = getJournalEntries(type);
+                            if (all[idx] !== undefined) {
+                                all[idx].topic = newName;
+                                entry.topic = newName;
+                                saveJournalEntries(type, all);
+                                topic.textContent = newName;
+                            }
+                        }
+                        if (input.parentNode) input.replaceWith(topic);
+                    };
+                    input.addEventListener('keydown', e => {
+                        if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+                        else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+                    });
+                    input.addEventListener('blur', () => commit(true));
+                    input.addEventListener('click', e => e.stopPropagation());
+                }, 600);
+            });
+            row.addEventListener('pointerup', () => clearTimeout(pressTimer));
+            row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+
+            row.onclick = (e) => {
+                if (e.target.closest('.exercise-delete-btn')) return;
+                if (renameTriggered) { renameTriggered = false; return; }
                 const isOpen = panel.classList.contains('open');
                 if (isOpen) {
                     saveEntry();
@@ -2191,11 +2259,12 @@ function renderJournalList(type) {
                 });
                 panel.classList.add('open');
                 row.classList.add('open');
-                setTimeout(() => ta.focus(), 350);
+                setTimeout(() => ta.focus(), 400);
             };
 
-            wrapper.appendChild(row);
-            wrapper.appendChild(panel);
+            inner.appendChild(row);
+            inner.appendChild(panel);
+            wrapper.appendChild(inner);
         } else {
             row.onclick = () => openJournalNotes(type, idx);
             wrapper.appendChild(row);
@@ -2245,7 +2314,16 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
         entries.push({ topic: name, notes: '' });
         saveJournalEntries(type, entries);
         input.value = '';
-        renderJournalList(type);
+        const list = document.getElementById(cfg.prefix + '-entry-list');
+        closeOpenPanel(list, () => {
+            renderJournalList(type);
+            const wrappers = list.querySelectorAll('.entry-wrapper');
+            const newest = wrappers[wrappers.length - 1];
+            if (newest) {
+                newest.classList.add('entry-collapsing');
+                requestAnimationFrame(() => requestAnimationFrame(() => newest.classList.remove('entry-collapsing')));
+            }
+        });
     };
 
     document.getElementById(p + 'NewEntryInput').addEventListener('keydown', e => {
@@ -2272,6 +2350,135 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
     };
 });
 
+
+// ─── Recovery Modal ───────────────────────────────────────────────────────────
+const RECOVERY_KEY = 'recovery_data';
+
+function getRecoveryData() {
+    const raw = Storage.getItem(RECOVERY_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    return all[getDateKey(viewDate)] || {};
+}
+function saveRecoveryData(data) {
+    const raw = Storage.getItem(RECOVERY_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    const hasAny = data.nutrition != null || data.hydration || data.cryotherapy || data.sleep != null;
+    if (hasAny) {
+        all[getDateKey(viewDate)] = data;
+    } else {
+        delete all[getDateKey(viewDate)];
+    }
+    Storage.setItem(RECOVERY_KEY, JSON.stringify(all));
+}
+
+function openRecoveryModal() {
+    renderRecoveryButtons();
+    document.getElementById('rc-sleep-section').classList.add('hidden');
+    document.getElementById('rc-nutrition-section').classList.add('hidden');
+    document.getElementById('recoveryModal').style.display = 'flex';
+}
+
+function renderRecoveryButtons() {
+    const data = getRecoveryData();
+    ['hydration', 'cryotherapy'].forEach(key => {
+        const btn = document.getElementById('rc-btn-' + key);
+        if (btn) btn.classList.toggle('has-data', !!data[key]);
+    });
+    const sleepBtn = document.getElementById('rc-btn-sleep');
+    if (sleepBtn) sleepBtn.classList.toggle('has-data', data.sleep != null);
+    const nutritionBtn = document.getElementById('rc-btn-nutrition');
+    if (nutritionBtn) nutritionBtn.classList.toggle('has-data', data.nutrition != null);
+}
+
+['hydration', 'cryotherapy'].forEach(key => {
+    document.getElementById('rc-btn-' + key).onclick = () => {
+        const data = getRecoveryData();
+        if (data[key]) { delete data[key]; } else { data[key] = true; }
+        saveRecoveryData(data);
+        renderRecoveryButtons();
+        refreshChartAfterDataChange();
+    };
+});
+
+document.getElementById('rc-btn-nutrition').onclick = (e) => {
+    if (e.target.closest('#rc-nutrition-section')) return;
+    const data = getRecoveryData();
+    const section = document.getElementById('rc-nutrition-section');
+    const sliderOpen = !section.classList.contains('hidden');
+
+    if (sliderOpen) {
+        delete data.nutrition;
+        saveRecoveryData(data);
+        section.classList.add('hidden');
+        renderRecoveryButtons();
+        refreshChartAfterDataChange();
+    } else if (data.nutrition != null) {
+        document.getElementById('rc-nutrition-range').value = data.nutrition;
+        document.getElementById('rc-nutrition-value').textContent = data.nutrition + ' CAL';
+        section.classList.remove('hidden');
+    } else {
+        data.nutrition = 3000;
+        saveRecoveryData(data);
+        document.getElementById('rc-nutrition-range').value = 3000;
+        document.getElementById('rc-nutrition-value').textContent = '3000 CAL';
+        section.classList.remove('hidden');
+        renderRecoveryButtons();
+        refreshChartAfterDataChange();
+    }
+};
+
+document.getElementById('rc-nutrition-range').addEventListener('input', () => {
+    const val = parseInt(document.getElementById('rc-nutrition-range').value);
+    document.getElementById('rc-nutrition-value').textContent = val + ' CAL';
+    const data = getRecoveryData();
+    data.nutrition = val;
+    saveRecoveryData(data);
+    refreshChartAfterDataChange();
+});
+
+document.getElementById('rc-btn-sleep').onclick = (e) => {
+    if (e.target.closest('#rc-sleep-section')) return;
+    const data = getRecoveryData();
+    const sleepSection = document.getElementById('rc-sleep-section');
+    const sliderOpen = !sleepSection.classList.contains('hidden');
+
+    if (sliderOpen) {
+        // slider visible → toggle off
+        delete data.sleep;
+        saveRecoveryData(data);
+        sleepSection.classList.add('hidden');
+        renderRecoveryButtons();
+        refreshChartAfterDataChange();
+    } else if (data.sleep != null) {
+        // already saved, slider hidden → just reveal slider at saved value
+        document.getElementById('rc-sleep-range').value = data.sleep;
+        document.getElementById('rc-sleep-value').textContent = data.sleep + ' HRS';
+        sleepSection.classList.remove('hidden');
+    } else {
+        // not set yet → turn on at default 8 and show slider
+        data.sleep = 8;
+        saveRecoveryData(data);
+        document.getElementById('rc-sleep-range').value = 8;
+        document.getElementById('rc-sleep-value').textContent = '8 HRS';
+        sleepSection.classList.remove('hidden');
+        renderRecoveryButtons();
+        refreshChartAfterDataChange();
+    }
+};
+
+document.getElementById('rc-sleep-range').addEventListener('input', () => {
+    const val = parseInt(document.getElementById('rc-sleep-range').value);
+    document.getElementById('rc-sleep-value').textContent = val + ' HRS';
+    const data = getRecoveryData();
+    data.sleep = val;
+    saveRecoveryData(data);
+    refreshChartAfterDataChange();
+});
+
+document.getElementById('closeRecoveryModal').onclick = () => {
+    document.getElementById('recoveryModal').style.display = 'none';
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 const MINDSET_NOTES_KEY = 'mindset_notes';
 const MINDSET_TYPE_LABELS = { book: 'BOOKS', video: 'VIDEOS', podcast: 'PODCASTS', conversation: 'CONVERSATIONS' };
@@ -2351,20 +2558,32 @@ function renderBookList() {
         del.textContent = '×';
         del.onclick = (e) => {
             e.stopPropagation();
-            const lib = getMindsetLibraryForType(activeMindsetType).filter(b => b !== item);
-            saveMindsetLibraryForType(activeMindsetType, lib);
-            const allNotes = getMindsetNotes();
-            const keyFragment = '__' + activeMindsetType + '__' + item;
-            Object.keys(allNotes).forEach(k => { if (k.endsWith(keyFragment)) delete allNotes[k]; });
-            saveMindsetNotes(allNotes);
-            renderBookList();
-            refreshChartAfterDataChange();
+            if (!del.dataset.confirming) {
+                del.dataset.confirming = '1';
+                del.textContent = '?';
+                del.classList.add('confirming');
+                setTimeout(() => { del.textContent = '×'; del.classList.remove('confirming'); delete del.dataset.confirming; }, 2500);
+            } else {
+                const lib = getMindsetLibraryForType(activeMindsetType).filter(b => b !== item);
+                saveMindsetLibraryForType(activeMindsetType, lib);
+                const allNotes = getMindsetNotes();
+                const keyFragment = '__' + activeMindsetType + '__' + item;
+                Object.keys(allNotes).forEach(k => { if (k.endsWith(keyFragment)) delete allNotes[k]; });
+                saveMindsetNotes(allNotes);
+                const list = document.getElementById('ms-book-list');
+                closeOpenPanel(list, () => {
+                    renderBookList();
+                    refreshChartAfterDataChange();
+                });
+            }
         };
 
         row.appendChild(title);
         row.appendChild(del);
 
         wrapper.className = 'entry-wrapper';
+        const inner = document.createElement('div');
+        inner.className = 'entry-inner';
 
         const panel = document.createElement('div');
         panel.className = 'inline-notes-panel';
@@ -2397,7 +2616,47 @@ function renderBookList() {
         panel.appendChild(ta);
         panel.appendChild(closeBtn);
 
-        row.onclick = () => {
+        // Long-press to rename
+        let pressTimer = null;
+        let renameTriggered = false;
+        row.addEventListener('contextmenu', e => e.preventDefault());
+        row.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.exercise-delete-btn')) return;
+            if (panel.classList.contains('open')) return;
+            renameTriggered = false;
+            pressTimer = setTimeout(() => {
+                renameTriggered = true;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'entry-rename-input';
+                input.value = item;
+                title.replaceWith(input);
+                input.focus(); input.select();
+                let done = false;
+                const commit = (save) => {
+                    if (done) return; done = true;
+                    const newName = input.value.trim();
+                    if (save && newName && newName !== item) {
+                        renameMindsetItem(activeMindsetType, item, newName);
+                        renderBookList();
+                        return;
+                    }
+                    if (input.parentNode) input.replaceWith(title);
+                };
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+                    else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+                });
+                input.addEventListener('blur', () => commit(true));
+                input.addEventListener('click', e => e.stopPropagation());
+            }, 600);
+        });
+        row.addEventListener('pointerup', () => clearTimeout(pressTimer));
+        row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+
+        row.onclick = (e) => {
+            if (e.target.closest('.exercise-delete-btn')) return;
+            if (renameTriggered) { renameTriggered = false; return; }
             const isOpen = panel.classList.contains('open');
             if (isOpen) {
                 saveEntry();
@@ -2411,11 +2670,12 @@ function renderBookList() {
             });
             panel.classList.add('open');
             row.classList.add('open');
-            setTimeout(() => ta.focus(), 350);
+            setTimeout(() => ta.focus(), 400);
         };
 
-        wrapper.appendChild(row);
-        wrapper.appendChild(panel);
+        inner.appendChild(row);
+        inner.appendChild(panel);
+        wrapper.appendChild(inner);
         list.appendChild(wrapper);
     });
 }
@@ -2476,7 +2736,16 @@ document.getElementById('addBookBtn').onclick = () => {
         saveMindsetLibraryForType(activeMindsetType, lib);
     }
     input.value = '';
-    renderBookList();
+    const list = document.getElementById('ms-book-list');
+    closeOpenPanel(list, () => {
+        renderBookList();
+        const wrappers = list.querySelectorAll('.entry-wrapper');
+        const newest = wrappers[wrappers.length - 1];
+        if (newest) {
+            newest.classList.add('entry-collapsing');
+            requestAnimationFrame(() => requestAnimationFrame(() => newest.classList.remove('entry-collapsing')));
+        }
+    });
 };
 document.getElementById('newBookInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('addBookBtn').click();
