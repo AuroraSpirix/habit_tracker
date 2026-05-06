@@ -744,6 +744,16 @@ button:hover {
     cursor: pointer;
     transition: all var(--transition);
     text-transform: uppercase;
+    min-width: 0;
+    overflow: hidden;
+}
+
+@media (max-width: 480px) {
+    .muscle-btn {
+        font-size: 0.55rem;
+        letter-spacing: 0.06em;
+        padding: 10px 6px;
+    }
 }
 
 .muscle-btn:hover {
