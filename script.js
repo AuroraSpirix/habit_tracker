@@ -35,16 +35,19 @@ function _scheduleSave() {
     }, 10000); // save 10 seconds after the first change
 }
 
-// Save immediately when the user closes/leaves the page
-// sendBeacon is more reliable than fetch in beforeunload
+// Save immediately when the user closes/leaves the page.
+// visibilitychange covers mobile (tab switch, home button).
+// beforeunload covers desktop browser close/navigate.
+function _saveNow() {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+    const blob = new Blob([JSON.stringify(_cache)], { type: 'application/json' });
+    navigator.sendBeacon(JSONBIN_URL, blob);
+}
 window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-        clearTimeout(_saveTimer);
-        _saveTimer = null;
-        const blob = new Blob([JSON.stringify(_cache)], { type: 'application/json' });
-        navigator.sendBeacon(JSONBIN_URL, blob);
-    }
+    if (document.visibilityState === 'hidden') _saveNow();
 });
+window.addEventListener('beforeunload', _saveNow);
 
 async function _flushToJsonBin() {
     try {
@@ -206,22 +209,14 @@ function isCategoryCompleted(catName) {
         return entries.some(e => e.topic || e.notes);
     }
     if (catName === 'Mindset') {
-        const all = JSON.parse(Storage.getItem('mindset_notes') || '{}');
-        const datePrefix = getDateKey(viewDate) + '__';
-        return Object.keys(all).some(k => k.startsWith(datePrefix) && all[k].trim() !== '');
+        return ['book', 'video', 'podcast', 'conversation'].some(t => getMindsetLibraryForType(t).length > 0);
     }
     if (catName === 'Mobility') {
         const datePrefix = getDateKey(viewDate) + '__';
-        // Sets count as completion if any set is checked off (workout actually done today)
         const checks = JSON.parse(Storage.getItem('exercise_set_checks') || '{}');
-        const hasChecks = Object.keys(checks).some(k =>
+        return Object.keys(checks).some(k =>
             k.startsWith(datePrefix) && (checks[k] || []).some(Boolean)
         );
-        const simpleNotes = JSON.parse(Storage.getItem('mobility_simple_notes') || '{}');
-        const hasSimple = Object.keys(simpleNotes).some(k =>
-            k.startsWith(datePrefix) && simpleNotes[k].trim() !== ''
-        );
-        return hasChecks || hasSimple;
     }
     return false;
 }
@@ -652,7 +647,7 @@ document.getElementById('nextDay').addEventListener('click', () => {
 
 
 loadDayData();                              // render immediately with defaults
-_loadFromJsonBin().then(() => loadDayData()); // re-render once remote data arrives
+_loadFromJsonBin().then(() => { pruneOrphanedChecks(); loadDayData(); }); // re-render once remote data arrives
 
 
 function drawWedges() {
@@ -747,6 +742,13 @@ function renderCalendar() {
             dayNumber = i - firstDayIndex + 1;
             div.textContent = dayNumber;
 
+            const realToday = new Date();
+            if (dayNumber === realToday.getDate() &&
+                month === realToday.getMonth() &&
+                year === realToday.getFullYear()) {
+                div.classList.add('today');
+            }
+
             if (dayNumber === viewDate.getDate() &&
                 month === viewDate.getMonth() &&
                 year === viewDate.getFullYear()) {
@@ -785,7 +787,7 @@ document.getElementById('nextMonth').onclick = () => {
 
     // Wrap calendarGrid in a 3-panel flex track  [prev | current | next]
     const swipeWrap  = document.createElement('div');
-    swipeWrap.style.cssText = 'overflow:hidden;width:100%;';
+    swipeWrap.style.cssText = 'overflow:hidden;width:100%;touch-action:none;';
 
     const swipeTrack = document.createElement('div');
     swipeTrack.style.cssText = 'display:flex;will-change:transform;gap:16px;transform:translateX(calc(-100% - 16px));';
@@ -967,10 +969,7 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
         // CSS underlines the label via the .has-note class.
         const label = document.createElement('span');
         label.className = hasNote ? 'sin-label has-note' : 'sin-label';
-        // Sins are short already; virtues get truncated to 5 chars + "." so
-        // the long ones (Knowledge, Integrity, Patience…) don't squeeze the
-        // slot or wrap to two lines.
-        label.textContent = mode === 'virtues' && activity.length > 5
+        label.textContent = (mode === 'virtues' && window.innerWidth <= 480 && activity.length > 5)
             ? activity.slice(0, 5) + '.'
             : activity;
         label.onclick = () => openAvoidedModal(activity);
@@ -1046,7 +1045,7 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
             if (!sliderDecided) {
                 const adx = Math.abs(e.clientX - startClientX);
                 const ady = Math.abs(e.clientY - startClientY);
-                if (adx < 6 && ady < 6) return;
+                if (adx < 3 && ady < 3) return;
                 if (adx >= ady) { dragging = false; return; } // horizontal — swipe layer handles it
                 sliderDecided = true;
                 try { wrap.setPointerCapture && wrap.setPointerCapture(e.pointerId); } catch (_) {}
@@ -1109,16 +1108,19 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
     const panelPrev = document.createElement('div');
     const panelNext = document.createElement('div');
     [panelPrev, panelNext].forEach(p => {
-        p.style.cssText = 'display:flex;justify-content:center;align-items:flex-end;gap:12px;padding:0 4px;flex:0 0 100%;min-width:0;';
+        p.style.cssText = 'display:flex;justify-content:center;align-items:flex-end;gap:22px;padding:0 4px;flex:0 0 100%;min-width:0;';
     });
 
-    origContainer.style.flex     = '0 0 100%';
-    origContainer.style.minWidth = '0';
+    const centerPanel = document.createElement('div');
+    centerPanel.style.cssText = 'flex:0 0 100%;min-width:0;display:flex;justify-content:center;align-items:flex-end;';
+
+    origContainer.style.maxWidth = 'none';
 
     origContainer.parentNode.insertBefore(swipeWrap, origContainer);
     origContainer.remove();
+    centerPanel.appendChild(origContainer);
     swipeTrack.appendChild(panelPrev);
-    swipeTrack.appendChild(origContainer);
+    swipeTrack.appendChild(centerPanel);
     swipeTrack.appendChild(panelNext);
     swipeWrap.appendChild(swipeTrack);
 
@@ -1139,9 +1141,6 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
         startX = e.clientX; startY = e.clientY;
         currentDx = 0; dragging = false; tracking = true; capturedId = e.pointerId;
         window.__mixerSwipeActive = false;
-        const otherMode = getMixerMode() === 'sins' ? 'virtues' : 'sins';
-        renderSinsMixer({}, panelPrev, otherMode);
-        renderSinsMixer({}, panelNext, otherMode);
     });
 
     swipeWrap.addEventListener('pointermove', (e) => {
@@ -1154,6 +1153,10 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
             if (Math.abs(dy) > Math.abs(dx)) { tracking = false; return; }
             dragging = true;
             window.__mixerSwipeActive = true;
+            // Pre-render adjacent panels only when a horizontal swipe is confirmed
+            const otherMode = getMixerMode() === 'sins' ? 'virtues' : 'sins';
+            renderSinsMixer({}, panelPrev, otherMode);
+            renderSinsMixer({}, panelNext, otherMode);
             try { swipeWrap.setPointerCapture(e.pointerId); } catch (_) {}
         }
 
@@ -1268,6 +1271,23 @@ function getExerciseChecks() {
 }
 function saveExerciseChecks(checks) {
     Storage.setItem(EXERCISE_CHECKS_KEY, JSON.stringify(checks));
+}
+
+// Remove check entries for exercises that no longer exist in the master library.
+// Runs once at startup to clear orphaned data left by previous exercise deletions.
+function pruneOrphanedChecks() {
+    const master = getMasterLibrary();
+    const checks = getExerciseChecks();
+    let changed = false;
+    Object.keys(checks).forEach(k => {
+        const parts = k.split('__');
+        if (parts.length < 3) { delete checks[k]; changed = true; return; }
+        const muscle = parts[1];
+        const exercise = parts.slice(2).join('__');
+        const validExercises = Array.isArray(master[muscle]) ? master[muscle] : [];
+        if (!validExercises.includes(exercise)) { delete checks[k]; changed = true; }
+    });
+    if (changed) saveExerciseChecks(checks);
 }
 
 // Per-exercise notes — keyed by muscle+exercise, NOT per-day. Notes are
@@ -1388,16 +1408,11 @@ function saveSimpleNotes() {
     refreshChartAfterDataChange();
 }
 
-document.getElementById('exBackToMusclesSimple').onclick = () => {
+document.getElementById('closeExerciseModal4').onclick = () => {
     saveSimpleNotes();
-    renderMuscleGrid();
     showExScreen('ex-screen-muscles');
 };
 
-document.getElementById('closeExerciseModal4').onclick = () => {
-    saveSimpleNotes();
-    document.getElementById('exerciseModal').style.display = 'none';
-};
 
 function openMuscleScreen(muscle) {
     activeMuscle = muscle;
@@ -1450,7 +1465,14 @@ function renderExerciseList() {
         del.title = 'Remove exercise';
         del.onclick = (e) => {
             e.stopPropagation();
-            deleteExercise(ex);
+            if (!del.dataset.confirming) {
+                del.dataset.confirming = '1';
+                del.textContent = '?';
+                del.classList.add('confirming');
+                setTimeout(() => { del.textContent = '×'; del.classList.remove('confirming'); delete del.dataset.confirming; }, 2500);
+            } else {
+                deleteExercise(ex);
+            }
         };
 
         row.appendChild(name);
@@ -1716,6 +1738,10 @@ function deleteExercise(ex) {
     delete logs[logKey];
     saveExerciseLogs(logs);
 
+    const checks = getExerciseChecks();
+    const exerciseSuffix = `__${activeMuscle}__${ex}`;
+    Object.keys(checks).forEach(k => { if (k.endsWith(exerciseSuffix)) delete checks[k]; });
+    saveExerciseChecks(checks);
 
     renderExerciseList();
     refreshChartAfterDataChange();
@@ -1790,14 +1816,21 @@ function renderSets() {
 
     const header = document.createElement('div');
     header.className = 'set-row';
-    header.innerHTML = `
-        <span class="set-label"></span>
-        <div class="set-input-group">
-            <span class="set-col-label">WEIGHT</span>
-            <span class="set-divider" style="visibility:hidden">×</span>
-            <span class="set-col-label">REPS</span>
-        </div>
-    `;
+    const headerGroup = document.createElement('div');
+    headerGroup.className = 'set-input-group';
+    const mkHide = (cls, t) => { const s = document.createElement('span'); s.className = cls; s.textContent = t; s.style.visibility = 'hidden'; return s; };
+    const mkLbl  = (t)      => { const s = document.createElement('span'); s.className = 'set-col-label'; s.textContent = t; return s; };
+    const emptySetLabel = document.createElement('span');
+    emptySetLabel.className = 'set-label';
+    header.appendChild(emptySetLabel);
+    headerGroup.appendChild(mkHide('set-stepper', '−'));
+    headerGroup.appendChild(mkLbl('WEIGHT'));
+    headerGroup.appendChild(mkHide('set-stepper', '+'));
+    headerGroup.appendChild(mkHide('set-divider', '×'));
+    headerGroup.appendChild(mkHide('set-stepper', '−'));
+    headerGroup.appendChild(mkLbl('REPS'));
+    headerGroup.appendChild(mkHide('set-stepper', '+'));
+    header.appendChild(headerGroup);
     container.appendChild(header);
 
     for (let i = 0; i < 3; i++) {
@@ -1896,10 +1929,16 @@ function openExerciseNotesScreen(exercise) {
     );
 
     const notes = getExerciseNotes();
-    document.getElementById('exNotesInput').value =
-        notes[getExerciseNoteKey(activeMuscle, exercise)] || '';
+    const rawNote = notes[getExerciseNoteKey(activeMuscle, exercise)] || '';
+    document.getElementById('exNotesInput').value = rawNote
+        ? rawNote.split('\n').map(l => l && !l.startsWith('• ') ? '• ' + l : l).join('\n')
+        : '• ';
     showExScreen('ex-screen-ex-notes');
-    setTimeout(() => document.getElementById('exNotesInput').focus(), 50);
+    setTimeout(() => {
+        const ta = document.getElementById('exNotesInput');
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = ta.value.length;
+    }, 50);
 }
 
 // Rename an exercise everywhere it appears: every day's library snapshot,
@@ -1969,40 +2008,36 @@ function renameExercise(muscle, oldName, newName) {
 
 function saveExerciseNote() {
     const notes = getExerciseNotes();
+    const value = document.getElementById('exNotesInput').value.trim();
     notes[getExerciseNoteKey(activeMuscle, activeExercise)] =
-        document.getElementById('exNotesInput').value.trim();
+        /^[•\s]*$/.test(value) ? '' : value;
     saveExerciseNotes(notes);
 }
 
-document.getElementById('exBackToSets').onclick = () => {
-    saveExerciseNote();
-    openSetsScreen(activeExercise);
-};
+document.getElementById('exNotesInput').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const ta = e.target;
+    const start = ta.selectionStart;
+    ta.value = ta.value.slice(0, start) + '\n• ' + ta.value.slice(ta.selectionEnd);
+    ta.selectionStart = ta.selectionEnd = start + 3;
+});
 
 document.getElementById('closeExerciseModal5').onclick = () => {
     saveExerciseNote();
-    document.getElementById('exerciseModal').style.display = 'none';
+    showExScreen('ex-screen-sets');
 };
 
-
-document.getElementById('exBackToMuscles').onclick = () => {
-    renderMuscleGrid();
+document.getElementById('closeExerciseModal2').onclick = () => {
     showExScreen('ex-screen-muscles');
 };
-document.getElementById('exBackToExercises').onclick = () => {
+document.getElementById('closeExerciseModal3').onclick = () => {
     saveSets();
-    renderExerciseList();
     showExScreen('ex-screen-exercises');
 };
 
 
-['closeExerciseModal','closeExerciseModal2'].forEach(id => {
-    document.getElementById(id).onclick = () => {
-        document.getElementById('exerciseModal').style.display = 'none';
-    };
-});
-document.getElementById('closeExerciseModal3').onclick = () => {
-    saveSets();
+document.getElementById('closeExerciseModal').onclick = () => {
     document.getElementById('exerciseModal').style.display = 'none';
 };
 
@@ -2015,113 +2050,13 @@ window.addEventListener('keydown', (e) => {
 });
 
 
-let activeEntryId = null;
-
-function getSpiritualEntries() {
-    const raw = Storage.getItem(SPIRITUAL_KEY);
-    const all = raw ? JSON.parse(raw) : {};
-    return all[getDateKey(viewDate)] || [];
-}
-
-function saveSpiritualEntries(entries) {
-    const raw = Storage.getItem(SPIRITUAL_KEY);
-    const all = raw ? JSON.parse(raw) : {};
-    all[getDateKey(viewDate)] = entries;
-    Storage.setItem(SPIRITUAL_KEY, JSON.stringify(all));
-}
-
 function openSpiritualModal() {
-    renderSpiritualList();
-    showSpScreen('sp-screen-list');
-    document.getElementById('spiritualModal').style.display = 'flex';
+    openJournalModal('spiritual');
 }
-
-function showSpScreen(id) {
-    ['sp-screen-list', 'sp-screen-editor'].forEach(s => {
-        document.getElementById(s).style.display = s === id ? 'block' : 'none';
-    });
-}
-
-function renderSpiritualList() {
-    const list = document.getElementById('sp-entry-list');
-    list.innerHTML = '';
-    const entries = getSpiritualEntries();
-
-    if (entries.length === 0) {
-        list.innerHTML = '<p class="empty-state">No entries yet. Add one below.</p>';
-        return;
-    }
-
-    entries.forEach((entry, idx) => {
-        const row = document.createElement('div');
-        row.className = 'sp-entry-row';
-
-        const topic = document.createElement('span');
-        topic.className = 'sp-entry-topic';
-        topic.textContent = entry.topic || 'Untitled';
-
-        const del = document.createElement('button');
-        del.className = 'exercise-delete-btn';
-        del.textContent = '×';
-        del.title = 'Delete entry';
-        del.onclick = (e) => {
-            e.stopPropagation();
-            const entries = getSpiritualEntries();
-            entries.splice(idx, 1);
-            saveSpiritualEntries(entries);
-            renderSpiritualList();
-
-            refreshChartAfterDataChange();
-        };
-
-        row.appendChild(topic);
-        row.appendChild(del);
-        row.onclick = () => openEntryEditor(idx);
-        list.appendChild(row);
-    });
-}
-
-function openEntryEditor(idx) {
-    const entries = getSpiritualEntries();
-    activeEntryId = idx;
-    const entry = idx === 'new' ? { topic: '', notes: '' } : entries[idx];
-    document.getElementById('spTopicInput').value = entry.topic || '';
-    document.getElementById('spNotesInput').value = entry.notes || '';
-    showSpScreen('sp-screen-editor');
-    setTimeout(() => document.getElementById('spTopicInput').focus(), 50);
-}
-
-document.getElementById('spAddEntryBtn').onclick = () => openEntryEditor('new');
-
-function saveSpiritualEntry() {
-    const topic = document.getElementById('spTopicInput').value.trim();
-    const notes = document.getElementById('spNotesInput').value.trim();
-    const entries = getSpiritualEntries();
-    if (activeEntryId === 'new') {
-        if (topic || notes) entries.push({ topic, notes });
-    } else {
-        entries[activeEntryId] = { topic, notes };
-    }
-    saveSpiritualEntries(entries);
-    refreshChartAfterDataChange();
-}
-
-document.getElementById('spBackToList').onclick = () => {
-    saveSpiritualEntry();
-    renderSpiritualList();
-    showSpScreen('sp-screen-list');
-};
-
-document.getElementById('closeSpiritualModal').onclick = () => {
-    document.getElementById('spiritualModal').style.display = 'none';
-};
-document.getElementById('closeSpiritualModal2').onclick = () => {
-    saveSpiritualEntry();
-    document.getElementById('spiritualModal').style.display = 'none';
-};
 
 const JOURNAL_CONFIGS = {
-    mindfulness: { key: 'journal_entries__mindfulness', modalId: 'mindfulnessModal', prefix: 'mf' },
+    spiritual:   { key: 'spiritual_entries',            modalId: 'spiritualModal',    prefix: 'sp' },
+    mindfulness: { key: 'journal_entries__mindfulness', modalId: 'mindfulnessModal',  prefix: 'mf' },
     recovery:    { key: 'journal_entries__recovery',    modalId: 'recoveryModal',     prefix: 'rc' },
     reflection:  { key: 'journal_entries__reflection',  modalId: 'reflectionModal',   prefix: 'rf' },
 };
@@ -2156,17 +2091,30 @@ function showJournalScreen(id) {
     });
 }
 
+function collapseEntryWrapper(w) {
+    w.classList.add('entry-collapsing');
+    setTimeout(() => { w.style.display = 'none'; }, 200);
+}
+
+function expandEntryWrapper(w) {
+    w.style.display = '';
+    requestAnimationFrame(() => requestAnimationFrame(() => w.classList.remove('entry-collapsing')));
+}
+
 function renderJournalList(type) {
     const cfg = JOURNAL_CONFIGS[type];
     const list = document.getElementById(cfg.prefix + '-entry-list');
     list.innerHTML = '';
     const entries = getJournalEntries(type);
+    const isInline = ['mindfulness', 'recovery', 'reflection'].includes(type);
 
     if (entries.length === 0) {
         list.innerHTML = '<p class="empty-state">No entries yet.</p>';
         return;
     }
     entries.forEach((entry, idx) => {
+        const wrapper = document.createElement('div');
+
         const row = document.createElement('div');
         row.className = 'sp-entry-row';
 
@@ -2179,16 +2127,81 @@ function renderJournalList(type) {
         del.textContent = '×';
         del.onclick = (e) => {
             e.stopPropagation();
-            const entries = getJournalEntries(type);
-            entries.splice(idx, 1);
-            saveJournalEntries(type, entries);
-            renderJournalList(type);
-            refreshChartAfterDataChange();
+            if (!del.dataset.confirming) {
+                del.dataset.confirming = '1';
+                del.textContent = '?';
+                del.classList.add('confirming');
+                setTimeout(() => { del.textContent = '×'; del.classList.remove('confirming'); delete del.dataset.confirming; }, 2500);
+            } else {
+                const all = getJournalEntries(type);
+                all.splice(idx, 1);
+                saveJournalEntries(type, all);
+                renderJournalList(type);
+                refreshChartAfterDataChange();
+            }
         };
         row.appendChild(topic);
         row.appendChild(del);
-        row.onclick = () => openJournalNotes(type, idx);
-        list.appendChild(row);
+
+        if (isInline) {
+            wrapper.className = 'entry-wrapper';
+
+            const panel = document.createElement('div');
+            panel.className = 'inline-notes-panel';
+
+            const ta = document.createElement('textarea');
+            ta.className = 'sp-notes-input';
+            ta.placeholder = 'Notes...';
+            ta.value = entry.notes || '';
+
+            const saveEntry = () => {
+                const all = getJournalEntries(type);
+                if (all[idx] !== undefined) {
+                    all[idx].notes = ta.value.trim();
+                    saveJournalEntries(type, all);
+                    refreshChartAfterDataChange();
+                }
+            };
+            ta.addEventListener('blur', saveEntry);
+
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'ex-close-btn';
+            closeBtn.textContent = 'CLOSE';
+            closeBtn.onclick = () => {
+                saveEntry();
+                panel.classList.remove('open');
+                row.classList.remove('open');
+                list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+            };
+
+            panel.appendChild(ta);
+            panel.appendChild(closeBtn);
+
+            row.onclick = () => {
+                const isOpen = panel.classList.contains('open');
+                if (isOpen) {
+                    saveEntry();
+                    panel.classList.remove('open');
+                    row.classList.remove('open');
+                    list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+                    return;
+                }
+                list.querySelectorAll('.entry-wrapper').forEach(w => {
+                    if (w !== wrapper) collapseEntryWrapper(w);
+                });
+                panel.classList.add('open');
+                row.classList.add('open');
+                setTimeout(() => ta.focus(), 350);
+            };
+
+            wrapper.appendChild(row);
+            wrapper.appendChild(panel);
+        } else {
+            row.onclick = () => openJournalNotes(type, idx);
+            wrapper.appendChild(row);
+        }
+
+        list.appendChild(wrapper);
     });
 }
 
@@ -2248,18 +2261,13 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
         }
     };
 
-    document.getElementById(p + 'BackToList').onclick = () => {
+    document.getElementById(p + 'CloseNotes').onclick = () => {
         saveNotes();
-        renderJournalList(type);
-        showJournalScreen(p + '-screen-list');
+        document.getElementById(cfg.modalId).style.display = 'none';
     };
 
     const base = type.charAt(0).toUpperCase() + type.slice(1);
     document.getElementById('close' + base + 'Modal').onclick = () => {
-        document.getElementById(cfg.modalId).style.display = 'none';
-    };
-    document.getElementById('close' + base + 'Modal2').onclick = () => {
-        saveNotes();
         document.getElementById(cfg.modalId).style.display = 'none';
     };
 });
@@ -2289,7 +2297,19 @@ function getMindsetNoteKey(type, item) {
     return getDateKey(viewDate) + '__' + type + '__' + item;
 }
 
+function mindsetTypeHasDataToday(type) {
+    return getMindsetLibraryForType(type).length > 0;
+}
+
+function renderMindsetTypeButtons() {
+    ['book', 'video', 'podcast', 'conversation'].forEach(type => {
+        const btn = document.getElementById('ms-btn-' + type);
+        if (btn) btn.classList.toggle('has-data', mindsetTypeHasDataToday(type));
+    });
+}
+
 function openMindsetModal() {
+    renderMindsetTypeButtons();
     showMsScreen('ms-screen-type');
     document.getElementById('mindsetModal').style.display = 'flex';
 }
@@ -2310,7 +2330,6 @@ function renderBookList() {
     const list = document.getElementById('ms-book-list');
     list.innerHTML = '';
     const items = getMindsetLibraryForType(activeMindsetType);
-    const notes = getMindsetNotes();
 
     if (items.length === 0) {
         list.innerHTML = '<p class="empty-state">Nothing yet. Add one below.</p>';
@@ -2318,6 +2337,8 @@ function renderBookList() {
     }
     items.forEach(item => {
         const noteKey = getMindsetNoteKey(activeMindsetType, item);
+        const wrapper = document.createElement('div');
+
         const row = document.createElement('div');
         row.className = 'sp-entry-row';
 
@@ -2332,14 +2353,70 @@ function renderBookList() {
             e.stopPropagation();
             const lib = getMindsetLibraryForType(activeMindsetType).filter(b => b !== item);
             saveMindsetLibraryForType(activeMindsetType, lib);
+            const allNotes = getMindsetNotes();
+            const keyFragment = '__' + activeMindsetType + '__' + item;
+            Object.keys(allNotes).forEach(k => { if (k.endsWith(keyFragment)) delete allNotes[k]; });
+            saveMindsetNotes(allNotes);
             renderBookList();
             refreshChartAfterDataChange();
         };
 
         row.appendChild(title);
         row.appendChild(del);
-        row.onclick = () => openBookNotes(item);
-        list.appendChild(row);
+
+        wrapper.className = 'entry-wrapper';
+
+        const panel = document.createElement('div');
+        panel.className = 'inline-notes-panel';
+
+        const ta = document.createElement('textarea');
+        ta.className = 'sp-notes-input';
+        ta.placeholder = 'Notes...';
+        ta.value = getMindsetNotes()[noteKey] || '';
+
+        const saveEntry = () => {
+            const allNotes = getMindsetNotes();
+            const value = ta.value.trim();
+            if (value) allNotes[noteKey] = value;
+            else delete allNotes[noteKey];
+            saveMindsetNotes(allNotes);
+            refreshChartAfterDataChange();
+        };
+        ta.addEventListener('blur', saveEntry);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'ex-close-btn';
+        closeBtn.textContent = 'CLOSE';
+        closeBtn.onclick = () => {
+            saveEntry();
+            panel.classList.remove('open');
+            row.classList.remove('open');
+            list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+        };
+
+        panel.appendChild(ta);
+        panel.appendChild(closeBtn);
+
+        row.onclick = () => {
+            const isOpen = panel.classList.contains('open');
+            if (isOpen) {
+                saveEntry();
+                panel.classList.remove('open');
+                row.classList.remove('open');
+                list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+                return;
+            }
+            list.querySelectorAll('.entry-wrapper').forEach(w => {
+                if (w !== wrapper) collapseEntryWrapper(w);
+            });
+            panel.classList.add('open');
+            row.classList.add('open');
+            setTimeout(() => ta.focus(), 350);
+        };
+
+        wrapper.appendChild(row);
+        wrapper.appendChild(panel);
+        list.appendChild(wrapper);
     });
 }
 
@@ -2412,20 +2489,16 @@ function saveMindsetNote() {
     refreshChartAfterDataChange();
 }
 
-document.getElementById('msBackToBooks').onclick = () => {
+document.getElementById('closeMsNotes').onclick = () => {
     saveMindsetNote();
-    renderBookList();
     showMsScreen('ms-screen-books');
 };
-document.getElementById('msBackToType').onclick = () => showMsScreen('ms-screen-type');
+document.getElementById('closeMsBooks').onclick = () => {
+    renderMindsetTypeButtons();
+    showMsScreen('ms-screen-type');
+};
 
-['closeMindsetModal', 'closeMindsetModal2'].forEach(id => {
-    document.getElementById(id).onclick = () => {
-        document.getElementById('mindsetModal').style.display = 'none';
-    };
-});
-document.getElementById('closeMindsetModal3').onclick = () => {
-    saveMindsetNote();
+document.getElementById('closeMindsetModal').onclick = () => {
     document.getElementById('mindsetModal').style.display = 'none';
 };
 

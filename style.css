@@ -245,7 +245,6 @@ svg {
     padding: 0 8px;
     text-align: center; /*here*/
     width: 100%;
-    overflow: hidden;
 }
 
 .avoided-section h3 {
@@ -261,7 +260,7 @@ svg {
     display: flex;
     justify-content: center;
     align-items: flex-end;
-    gap: 12px;
+    gap: 22px;
     margin: 0 auto;
     width: max-content;
     max-width: 100%;
@@ -301,9 +300,7 @@ svg {
     min-height: 1.2em;
     user-select: none;
     -webkit-user-select: none;
-    /* Allow long virtue names to wrap rather than overflow the slot */
-    white-space: normal;
-    word-break: break-word;
+    white-space: nowrap;
 }
 
 .sin-label:hover { color: var(--text); }
@@ -389,7 +386,7 @@ svg {
 
 
 @media (max-width: 480px) {
-    #sins-mixer { gap: 3px; padding: 0 2px; }
+    #sins-mixer { gap: 10px; padding: 0 2px; }
     .sin-slot { width: 36px; gap: 6px; }
     /* Allow wrapping on mobile because virtue names ("Knowledge", "Integrity",
        "Patience"…) overflow the 36px slot. height:auto + line-height:1.1
@@ -461,6 +458,7 @@ button:hover {
     padding: 15px 20px 10px;
     max-width: 360px;
     overflow: hidden;
+    touch-action: none;
 }
 
 #noteModal .modal-content {
@@ -539,6 +537,11 @@ button:hover {
     background: var(--surface-3);
     border-color: var(--border-bright);
     color: var(--text);
+}
+
+.day-box.today {
+    background: var(--gold-dim);
+    border-color: var(--gold);
 }
 
 .day-box.current {
@@ -834,19 +837,16 @@ button:hover {
     flex: 1;
     text-align: left;
     transition: color var(--transition);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .exercise-row:hover .exercise-row-name { color: var(--text); }
 .exercise-row.has-data .exercise-row-name { color: var(--green); }
 
-.exercise-row-meta {
-    font-size: 0.6rem;
-    color: var(--text-faint);
-    margin-right: 10px;
-    letter-spacing: 0.05em;
-}
-
-.exercise-row.has-data .exercise-row-meta { color: rgba(61,220,132,0.5); }
+.exercise-row-meta { display: none; }
 
 .exercise-delete-btn {
     background: none;
@@ -860,6 +860,7 @@ button:hover {
 }
 
 .exercise-delete-btn:hover { color: var(--red); background: none; }
+.exercise-delete-btn.confirming { color: var(--gold); font-weight: bold; }
 
 .ex-add-row {
     display: flex;
@@ -917,13 +918,18 @@ button:hover {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-bottom: 24px;
+    margin-bottom: 15px;
+    margin-top: -10px;
 }
 
 .set-row {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.sets-list .set-row:first-child {
+    margin-bottom: -12px;
 }
 
 .set-label {
@@ -1004,10 +1010,9 @@ button:hover {
     font-size: 0.68rem;
     letter-spacing: 0.18em;
     color: var(--text-faint);
-    flex: 1;
+    width: 80px;
+    flex: none;
     text-align: center;
-    margin-left: 30px;
-    margin-right: 30px;
     text-transform: uppercase;
     font-family: var(--font-mono);
     font-weight: 400;
@@ -1016,9 +1021,8 @@ button:hover {
 @media (max-width: 640px) {
     .set-col-label {
         font-size: 0.55rem;
-        margin-left: 30px;
-        margin-right: 30px;
         letter-spacing: 0.15em;
+        width: 38px;
     }
 }
 
@@ -1141,11 +1145,51 @@ button:hover {
     background: var(--surface-3);
 }
 
+.entry-wrapper {
+    transition: opacity 0.2s ease;
+}
+
+.entry-wrapper.entry-collapsing {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.sp-entry-row.open {
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border-bottom-color: transparent;
+}
+
+.inline-notes-panel {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    padding: 0 10px;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.3s ease;
+}
+
+.inline-notes-panel.open {
+    max-height: 260px;
+    opacity: 1;
+    padding: 10px;
+}
+
+.inline-notes-panel textarea {
+    height: 80px;
+    resize: none;
+}
+
 .sp-entry-topic {
     font-family: var(--font-mono);
     font-size: 0.8rem;
     letter-spacing: 0.05em;
-    color: var(--text-muted);
+    color: var(--green);
     flex: 1;
     text-align: left;
     white-space: nowrap;
@@ -1238,9 +1282,11 @@ p {
     color: var(--gold);
 }
 .title-edit-input {
+    display: block;
+    margin: 0 auto 18px auto;
     font-family: var(--font-display);
-    font-size: 1.4rem;
-    font-weight: 300;
+    font-size: 0.78rem;
+    font-weight: 500;
     letter-spacing: 0.08em;
     color: var(--text);
     text-align: center;
