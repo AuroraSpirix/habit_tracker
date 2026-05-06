@@ -793,21 +793,12 @@ function openNoteModal(index) {
     setTimeout(() => noteArea.focus(), 50);
 }
 
-document.getElementById('saveNote').onclick = () => {
+document.getElementById('closeNoteModal').onclick = () => {
     if (activeNoteIdx !== null) {
-
         categories[activeNoteIdx].note = noteArea.value;
         saveDayData();
-
-
         refreshChartAfterDataChange();
-
-        noteModal.style.display = 'none';
-        activeNoteIdx = null;
     }
-};
-
-document.getElementById('closeNoteModal').onclick = () => {
     noteModal.style.display = 'none';
     activeNoteIdx = null;
 };
@@ -1250,24 +1241,24 @@ function openSimpleScreen(type) {
     setTimeout(() => document.getElementById('exSimpleNotes').focus(), 50);
 }
 
-document.getElementById('exBackToMusclesSimple').onclick = () => {
-    renderMuscleGrid();
-    showExScreen('ex-screen-muscles');
-};
 
-document.getElementById('exSimpleSaveBtn').onclick = () => {
+function saveSimpleNotes() {
     const titleEl = document.getElementById('ex-simple-title').textContent;
-
     const type = MOBILITY_EXTRAS.find(t => t.toUpperCase() === titleEl) || titleEl;
     const notes = getMobilitySimpleNotes();
     notes[getMobilitySimpleKey(type)] = document.getElementById('exSimpleNotes').value.trim();
     saveMobilitySimpleNotes(notes);
     refreshChartAfterDataChange();
+}
+
+document.getElementById('exBackToMusclesSimple').onclick = () => {
+    saveSimpleNotes();
     renderMuscleGrid();
     showExScreen('ex-screen-muscles');
 };
 
 document.getElementById('closeExerciseModal4').onclick = () => {
+    saveSimpleNotes();
     document.getElementById('exerciseModal').style.display = 'none';
 };
 
@@ -1736,7 +1727,7 @@ function renderSets() {
     }
 }
 
-document.getElementById('saveSetsBtn').onclick = () => {
+function saveSets() {
     const logs = getExerciseLogs();
     const logKey = getDayLogKey(activeMuscle, activeExercise);
     const sets = [];
@@ -1749,9 +1740,7 @@ document.getElementById('saveSetsBtn').onclick = () => {
     logs[logKey] = sets;
     saveExerciseLogs(logs);
     refreshChartAfterDataChange();
-    renderExerciseList();
-    showExScreen('ex-screen-exercises');
-};
+}
 
 // ─── Exercise notes screen ──────────────────────────────────────────
 function openExerciseNotesScreen(exercise) {
@@ -1841,20 +1830,20 @@ function renameExercise(muscle, oldName, newName) {
     }
 }
 
-document.getElementById('exNotesSaveBtn').onclick = () => {
+function saveExerciseNote() {
     const notes = getExerciseNotes();
     notes[getExerciseNoteKey(activeMuscle, activeExercise)] =
         document.getElementById('exNotesInput').value.trim();
     saveExerciseNotes(notes);
-    // Go back to sets screen so the user is in workout flow
-    openSetsScreen(activeExercise);
-};
+}
 
 document.getElementById('exBackToSets').onclick = () => {
+    saveExerciseNote();
     openSetsScreen(activeExercise);
 };
 
 document.getElementById('closeExerciseModal5').onclick = () => {
+    saveExerciseNote();
     document.getElementById('exerciseModal').style.display = 'none';
 };
 
@@ -1864,16 +1853,21 @@ document.getElementById('exBackToMuscles').onclick = () => {
     showExScreen('ex-screen-muscles');
 };
 document.getElementById('exBackToExercises').onclick = () => {
+    saveSets();
     renderExerciseList();
     showExScreen('ex-screen-exercises');
 };
 
 
-['closeExerciseModal','closeExerciseModal2','closeExerciseModal3'].forEach(id => {
+['closeExerciseModal','closeExerciseModal2'].forEach(id => {
     document.getElementById(id).onclick = () => {
         document.getElementById('exerciseModal').style.display = 'none';
     };
 });
+document.getElementById('closeExerciseModal3').onclick = () => {
+    saveSets();
+    document.getElementById('exerciseModal').style.display = 'none';
+};
 
 
 window.addEventListener('keydown', (e) => {
@@ -1962,33 +1956,32 @@ function openEntryEditor(idx) {
 
 document.getElementById('spAddEntryBtn').onclick = () => openEntryEditor('new');
 
-document.getElementById('spSaveEntryBtn').onclick = () => {
+function saveSpiritualEntry() {
     const topic = document.getElementById('spTopicInput').value.trim();
     const notes = document.getElementById('spNotesInput').value.trim();
     const entries = getSpiritualEntries();
-
     if (activeEntryId === 'new') {
-        entries.push({ topic, notes });
+        if (topic || notes) entries.push({ topic, notes });
     } else {
         entries[activeEntryId] = { topic, notes };
     }
-
     saveSpiritualEntries(entries);
     refreshChartAfterDataChange();
-    renderSpiritualList();
-    showSpScreen('sp-screen-list');
-};
+}
 
 document.getElementById('spBackToList').onclick = () => {
+    saveSpiritualEntry();
     renderSpiritualList();
     showSpScreen('sp-screen-list');
 };
 
-['closeSpiritualModal', 'closeSpiritualModal2'].forEach(id => {
-    document.getElementById(id).onclick = () => {
-        document.getElementById('spiritualModal').style.display = 'none';
-    };
-});
+document.getElementById('closeSpiritualModal').onclick = () => {
+    document.getElementById('spiritualModal').style.display = 'none';
+};
+document.getElementById('closeSpiritualModal2').onclick = () => {
+    saveSpiritualEntry();
+    document.getElementById('spiritualModal').style.display = 'none';
+};
 
 const JOURNAL_CONFIGS = {
     mindfulness: { key: 'journal_entries__mindfulness', modalId: 'mindfulnessModal', prefix: 'mf' },
@@ -2021,7 +2014,7 @@ function openJournalModal(type) {
 function showJournalScreen(id) {
     const cfg = JOURNAL_CONFIGS[activeJournalType];
     const p = cfg.prefix;
-    [p + '-screen-list', p + '-screen-editor'].forEach(s => {
+    [p + '-screen-list', p + '-screen-notes'].forEach(s => {
         document.getElementById(s).style.display = s === id ? 'block' : 'none';
     });
 }
@@ -2057,57 +2050,81 @@ function renderJournalList(type) {
         };
         row.appendChild(topic);
         row.appendChild(del);
-        row.onclick = () => openJournalEditor(type, idx);
+        row.onclick = () => openJournalNotes(type, idx);
         list.appendChild(row);
     });
 }
 
-function openJournalEditor(type, idx) {
-    const entries = getJournalEntries(type);
+function openJournalNotes(type, idx) {
+    activeJournalType = type;
     activeJournalEntryId = idx;
-    const entry = idx === 'new' ? { topic: '', notes: '' } : entries[idx];
+    const entries = getJournalEntries(type);
+    const entry = entries[idx] || { topic: '', notes: '' };
     const p = JOURNAL_CONFIGS[type].prefix;
-    document.getElementById(p + 'TopicInput').value = entry.topic || '';
+    const titleEl = document.getElementById(p + '-entry-title');
+    titleEl.textContent = (entry.topic || 'Untitled').toUpperCase();
     document.getElementById(p + 'NotesInput').value = entry.notes || '';
-    showJournalScreen(p + '-screen-editor');
-    setTimeout(() => document.getElementById(p + 'TopicInput').focus(), 50);
+    makeTitleEditable(
+        titleEl,
+        () => {
+            const e = getJournalEntries(type)[activeJournalEntryId];
+            return e ? e.topic || '' : '';
+        },
+        (newName) => {
+            const all = getJournalEntries(type);
+            if (all[activeJournalEntryId] !== undefined) {
+                all[activeJournalEntryId].topic = newName;
+                saveJournalEntries(type, all);
+                renderJournalList(type);
+            }
+        }
+    );
+    showJournalScreen(p + '-screen-notes');
+    setTimeout(() => document.getElementById(p + 'NotesInput').focus(), 50);
 }
 
 
 Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
     const p = cfg.prefix;
-    document.getElementById(p + 'AddEntryBtn').onclick = () => openJournalEditor(type, 'new');
 
-    document.getElementById(p + 'SaveEntryBtn').onclick = () => {
-        const topic = document.getElementById(p + 'TopicInput').value.trim();
-        const notes = document.getElementById(p + 'NotesInput').value.trim();
+    document.getElementById(p + 'AddEntryBtn').onclick = () => {
+        const input = document.getElementById(p + 'NewEntryInput');
+        const name = input.value.trim();
+        if (!name) return;
         const entries = getJournalEntries(type);
-        if (activeJournalEntryId === 'new') {
-            entries.push({ topic, notes });
-        } else {
-            entries[activeJournalEntryId] = { topic, notes };
-        }
+        entries.push({ topic: name, notes: '' });
         saveJournalEntries(type, entries);
-        refreshChartAfterDataChange();
+        input.value = '';
         renderJournalList(type);
-        showJournalScreen(p + '-screen-list');
+    };
+
+    document.getElementById(p + 'NewEntryInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') document.getElementById(p + 'AddEntryBtn').click();
+    });
+
+    const saveNotes = () => {
+        const entries = getJournalEntries(type);
+        if (activeJournalEntryId !== null && entries[activeJournalEntryId] !== undefined) {
+            entries[activeJournalEntryId].notes = document.getElementById(p + 'NotesInput').value.trim();
+            saveJournalEntries(type, entries);
+            refreshChartAfterDataChange();
+        }
     };
 
     document.getElementById(p + 'BackToList').onclick = () => {
+        saveNotes();
         renderJournalList(type);
         showJournalScreen(p + '-screen-list');
     };
 
-    [cfg.modalId.replace('Modal', 'Modal'), p.charAt(0).toUpperCase() + p.slice(1)].forEach(() => {});
-    const closeIds = ['close' + cfg.modalId.charAt(0).toUpperCase() + cfg.modalId.slice(1),
-                      'close' + cfg.modalId.charAt(0).toUpperCase() + cfg.modalId.slice(1) + '2'];
-
     const base = type.charAt(0).toUpperCase() + type.slice(1);
-    ['close' + base + 'Modal', 'close' + base + 'Modal2'].forEach(id => {
-        document.getElementById(id).onclick = () => {
-            document.getElementById(cfg.modalId).style.display = 'none';
-        };
-    });
+    document.getElementById('close' + base + 'Modal').onclick = () => {
+        document.getElementById(cfg.modalId).style.display = 'none';
+    };
+    document.getElementById('close' + base + 'Modal2').onclick = () => {
+        saveNotes();
+        document.getElementById(cfg.modalId).style.display = 'none';
+    };
 });
 
 
@@ -2251,26 +2268,29 @@ document.getElementById('newBookInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('addBookBtn').click();
 });
 
-document.getElementById('msSaveNotesBtn').onclick = () => {
+function saveMindsetNote() {
     const notes = getMindsetNotes();
     notes[getMindsetNoteKey(activeMindsetType, activeBook)] = document.getElementById('msBookNotes').value.trim();
     saveMindsetNotes(notes);
     refreshChartAfterDataChange();
-    renderBookList();
-    showMsScreen('ms-screen-books');
-};
+}
 
 document.getElementById('msBackToBooks').onclick = () => {
+    saveMindsetNote();
     renderBookList();
     showMsScreen('ms-screen-books');
 };
 document.getElementById('msBackToType').onclick = () => showMsScreen('ms-screen-type');
 
-['closeMindsetModal', 'closeMindsetModal2', 'closeMindsetModal3'].forEach(id => {
+['closeMindsetModal', 'closeMindsetModal2'].forEach(id => {
     document.getElementById(id).onclick = () => {
         document.getElementById('mindsetModal').style.display = 'none';
     };
 });
+document.getElementById('closeMindsetModal3').onclick = () => {
+    saveMindsetNote();
+    document.getElementById('mindsetModal').style.display = 'none';
+};
 
 let activeAvoidedActivity = null;
 
@@ -2314,27 +2334,23 @@ function openAvoidedModal(activity) {
 }
 
 function closeAvoidedModal() {
+    if (activeAvoidedActivity) {
+        const notes = document.getElementById('avoidedNotes').value.trim();
+        const key = getDateKey(viewDate) + '__' + activeAvoidedActivity;
+        const entriesKey = getActiveEntriesKey();
+        let all = {};
+        try { all = JSON.parse(Storage.getItem(entriesKey)) || {}; } catch(e) {}
+        if (notes) {
+            all[key] = { notes };
+        } else {
+            delete all[key];
+        }
+        Storage.setItem(entriesKey, JSON.stringify(all));
+        renderSinsMixer();
+    }
     document.getElementById('avoidedModal').style.display = 'none';
     activeAvoidedActivity = null;
 }
-
-document.getElementById('avoidedSaveBtn').addEventListener('click', function() {
-    const notes = document.getElementById('avoidedNotes').value.trim();
-    const key = getDateKey(viewDate) + '__' + activeAvoidedActivity;
-    const entriesKey = getActiveEntriesKey();
-    let all = {};
-    try { all = JSON.parse(Storage.getItem(entriesKey)) || {}; } catch(e) {}
-
-    if (notes) {
-        all[key] = { notes };
-    } else {
-        delete all[key];
-    }
-
-    Storage.setItem(entriesKey, JSON.stringify(all));
-    renderSinsMixer();
-    closeAvoidedModal();
-});
 
 document.getElementById('closeAvoidedModal').addEventListener('click', closeAvoidedModal);
 
@@ -2366,16 +2382,12 @@ function openGratitudeModal() {
     setTimeout(() => document.getElementById('grateful1').focus(), 50);
 }
 
-document.getElementById('gratitudeSaveBtn').addEventListener('click', function() {
+document.getElementById('closeGratitudeModal').addEventListener('click', function() {
     const entries = getGratitudeEntries();
     entries[getDateKey(viewDate)] = [1,2,3,4,5].map(i =>
         document.getElementById('grateful' + i).value.trim()
     );
     Storage.setItem(GRATITUDE_KEY, JSON.stringify(entries));
-    document.getElementById('gratitudeModal').style.display = 'none';
-});
-
-document.getElementById('closeGratitudeModal').addEventListener('click', function() {
     document.getElementById('gratitudeModal').style.display = 'none';
 });
 

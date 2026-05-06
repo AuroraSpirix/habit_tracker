@@ -261,7 +261,7 @@ svg {
     display: flex;
     justify-content: center;
     align-items: flex-end;
-    gap: 8px;
+    gap: 10px;
     margin: 0 auto;
     width: max-content;
     max-width: 100%;
@@ -728,12 +728,19 @@ button:hover {
     align-items: center;
     justify-content: center;
     position: relative;
+    padding: 10px 0;
     margin-bottom: 16px;
+}
+
+.ex-nav .ex-title {
+    margin: 0;
 }
 
 .ex-back-btn {
     position: absolute;
     left: 0;
+    top: 50%;
+    transform: translateY(-50%);
     background: none;
     border: none;
     color: var(--text-faint);
