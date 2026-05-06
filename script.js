@@ -773,6 +773,134 @@ document.getElementById('nextMonth').onclick = () => {
     renderCalendar();
 };
 
+// ── Calendar drag-to-switch: 3-panel sliding track ───────────────────────────
+(function () {
+    const COMMIT_THRESHOLD = 60;
+    const DRAG_THRESHOLD   = 8;
+
+    const calModal   = document.getElementById('calendarModal');
+    const calContent = document.querySelector('#calendarModal .modal-content');
+    const origGrid   = document.getElementById('calendarGrid');
+    const monthLabel = document.getElementById('monthYearLabel');
+
+    // Wrap calendarGrid in a 3-panel flex track  [prev | current | next]
+    const swipeWrap  = document.createElement('div');
+    swipeWrap.style.cssText = 'overflow:hidden;width:100%;';
+
+    const swipeTrack = document.createElement('div');
+    swipeTrack.style.cssText = 'display:flex;will-change:transform;gap:16px;transform:translateX(calc(-100% - 16px));';
+
+    const panelPrev = document.createElement('div');
+    panelPrev.className = 'calendar-grid';
+    const panelNext = document.createElement('div');
+    panelNext.className = 'calendar-grid';
+
+    [panelPrev, origGrid, panelNext].forEach(el => {
+        el.style.flex     = '0 0 100%';
+        el.style.minWidth = '0';
+    });
+
+    origGrid.parentNode.insertBefore(swipeWrap, origGrid);
+    origGrid.remove();
+    swipeTrack.appendChild(panelPrev);
+    swipeTrack.appendChild(origGrid);
+    swipeTrack.appendChild(panelNext);
+    swipeWrap.appendChild(swipeTrack);
+
+    // Render any month into any container
+    function renderInto(container, year, month) {
+        container.innerHTML = '';
+        const firstDay    = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const prevLastDay = new Date(year, month, 0).getDate();
+        for (let i = 0; i < 42; i++) {
+            const box = document.createElement('div');
+            box.className = 'day-box';
+            if (i < firstDay) {
+                box.textContent = prevLastDay - firstDay + i + 1;
+                box.classList.add('other-month');
+            } else if (i >= firstDay + daysInMonth) {
+                box.textContent = i - (firstDay + daysInMonth) + 1;
+                box.classList.add('other-month');
+            } else {
+                const d = i - firstDay + 1;
+                box.textContent = d;
+                if (d === viewDate.getDate() && month === viewDate.getMonth() && year === viewDate.getFullYear())
+                    box.classList.add('current');
+                box.onclick = ((y, m, day) => () => {
+                    viewDate = new Date(y, m, day);
+                    loadDayData();
+                    calModal.style.display = 'none';
+                })(year, month, d);
+            }
+            container.appendChild(box);
+        }
+    }
+
+    function setPos(dx) {
+        swipeTrack.style.transition = 'none';
+        swipeTrack.style.transform  = `translateX(calc(-100% - 16px + ${dx}px))`;
+    }
+
+    function animateTo(dx, onDone) {
+        swipeTrack.style.transition = 'transform 0.3s cubic-bezier(0.25,0.46,0.45,0.94)';
+        swipeTrack.style.transform  = `translateX(calc(-100% - 16px + ${dx}px))`;
+        if (onDone) swipeTrack.addEventListener('transitionend', onDone, { once: true });
+    }
+
+    let startX = 0, startY = 0, tracking = false, dragging = false, currentDx = 0, capturedId = null;
+
+    calContent.addEventListener('pointerdown', (e) => {
+        if (e.target.tagName === 'BUTTON' || tracking) return;
+        startX = e.clientX; startY = e.clientY;
+        currentDx = 0; dragging = false; tracking = true; capturedId = e.pointerId;
+
+        // Pre-fill adjacent panels immediately so they're in frame as soon as the user drags
+        const prev = new Date(calendarDate); prev.setMonth(prev.getMonth() - 1);
+        const next = new Date(calendarDate); next.setMonth(next.getMonth() + 1);
+        renderInto(panelPrev, prev.getFullYear(), prev.getMonth());
+        renderInto(panelNext, next.getFullYear(), next.getMonth());
+    });
+
+    calContent.addEventListener('pointermove', (e) => {
+        if (!tracking || e.pointerId !== capturedId) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        if (!dragging) {
+            if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            if (Math.abs(dy) > Math.abs(dx)) { tracking = false; return; } // vertical scroll
+            dragging = true;
+            try { calContent.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+
+        e.preventDefault();
+        currentDx = dx;
+        setPos(dx);
+    });
+
+    const endDrag = (e) => {
+        if (!tracking || e.pointerId !== capturedId) return;
+        tracking = false; capturedId = null;
+        if (!dragging) return;
+
+        if (Math.abs(currentDx) >= COMMIT_THRESHOLD) {
+            const goNext = currentDx < 0;
+            const w      = swipeWrap.offsetWidth;
+            animateTo(goNext ? -(w + 16) : (w + 16), () => {
+                calendarDate.setMonth(calendarDate.getMonth() + (goNext ? 1 : -1));
+                renderCalendar();   // refill origGrid + update month label text
+                setPos(0);          // snap back to center with new content (no visible flash)
+            });
+        } else {
+            animateTo(0);
+        }
+    };
+
+    calContent.addEventListener('pointerup',     endDrag);
+    calContent.addEventListener('pointercancel', endDrag);
+})();
+
 const noteModal = document.getElementById('noteModal');
 const noteArea = document.getElementById('noteArea');
 const noteTitle = document.getElementById('noteTitle');
@@ -811,12 +939,11 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-function renderSinsMixer(opts) {
-    const container = document.getElementById('sins-mixer');
+function renderSinsMixer(opts, targetContainer, targetMode) {
+    const container = targetContainer || document.getElementById('sins-mixer');
     if (!container) return;
 
-    const animateFrom = opts && opts.animateFrom; // 'sins' | 'virtues' | undefined
-    const mode = getMixerMode();
+    const mode = targetMode || getMixerMode();
     const cfg = getMixerConfig(mode);
     const levels = getLevelsForDay(cfg.levelsKey);
     const entries = getAllLevels(cfg.entriesKey);
@@ -886,29 +1013,26 @@ function renderSinsMixer(opts) {
             valueText.textContent = isOn ? String(currentValue) : '\u00A0';
         };
 
-        // Pointer-based drag — relative-delta, so clicks don't snap the thumb.
-        // Each slider checks the shared swipe flag (set by the container-level
-        // swipe detector) and bails out if a horizontal swipe is in progress,
-        // reverting any value change it made.
+        // Pointer-based drag — determines direction before capturing the pointer.
+        // Horizontal gestures are left to the outer swipe layer; vertical ones
+        // capture here for slider-only handling.
         let dragging = false;
         let startClientY = 0;
         let startClientX = 0;
         let startValue = 0;
+        let sliderDecided = false;
 
         const onPointerDown = (e) => {
             e.preventDefault();
             dragging = true;
+            sliderDecided = false;
             startClientY = e.clientY;
             startClientX = e.clientX;
             startValue = currentValue;
-            wrap.setPointerCapture && wrap.setPointerCapture(e.pointerId);
         };
         const onPointerMove = (e) => {
             if (!dragging) return;
 
-            // If a swipe was just declared, abort: revert the value to what it
-            // was at gesture start, release capture so the swipe handler gets
-            // the rest of the gesture, and stop tracking.
             if (window.__mixerSwipeActive) {
                 if (currentValue !== startValue) {
                     currentValue = startValue;
@@ -916,8 +1040,16 @@ function renderSinsMixer(opts) {
                     sync();
                 }
                 dragging = false;
-                try { wrap.releasePointerCapture && wrap.releasePointerCapture(e.pointerId); } catch (_) {}
                 return;
+            }
+
+            if (!sliderDecided) {
+                const adx = Math.abs(e.clientX - startClientX);
+                const ady = Math.abs(e.clientY - startClientY);
+                if (adx < 6 && ady < 6) return;
+                if (adx >= ady) { dragging = false; return; } // horizontal — swipe layer handles it
+                sliderDecided = true;
+                try { wrap.setPointerCapture && wrap.setPointerCapture(e.pointerId); } catch (_) {}
             }
 
             e.preventDefault();
@@ -937,6 +1069,7 @@ function renderSinsMixer(opts) {
         const onPointerUp = (e) => {
             if (!dragging) return;
             dragging = false;
+            sliderDecided = false;
             try { wrap.releasePointerCapture && wrap.releasePointerCapture(e.pointerId); } catch (_) {}
         };
 
@@ -956,99 +1089,103 @@ function renderSinsMixer(opts) {
         sync();
     });
 
-    // ─── Entry animation on mode switch ────────────────────────────
-    // When toggling between sins/virtues, slide the whole row in from the
-    // side opposite the swipe direction. Direction is passed through as
-    // 'left' or 'right' (the swipe direction); the new row enters from
-    // the opposite side.
-    if (animateFrom) {
-        const slideDir = animateFrom === 'left' ? -1 : 1;
-        container.style.setProperty('--slide-dir', slideDir);
-        container.classList.add('mixer-row-enter');
-        container.addEventListener('animationend', () => {
-            container.classList.remove('mixer-row-enter');
-            container.style.removeProperty('--slide-dir');
-        }, { once: true });
-    }
-
-    // ─── Swipe-to-switch ────────────────────────────────────────────
-    // Set up once. Detects horizontal-dominant gestures anywhere on the
-    // slider row. Sets a global flag so individual sliders can abort
-    // their vertical-drag handling and revert any half-applied value.
-    if (!container.__swipeBound) {
-        container.__swipeBound = true;
-        const SWIPE_THRESHOLD = 40;     // px of horizontal travel to commit a switch
-        const DECISION_THRESHOLD = 12;  // px of motion before we decide direction
-
-        let startX = 0, startY = 0;
-        let tracking = false;
-        let decided = false; // 'horizontal' | 'vertical' | false
-
-        container.addEventListener('pointerdown', (e) => {
-            tracking = true;
-            decided = false;
-            window.__mixerSwipeActive = false;
-            startX = e.clientX;
-            startY = e.clientY;
-        });
-
-        container.addEventListener('pointermove', (e) => {
-            if (!tracking) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            if (!decided) {
-                // Wait until the gesture moves enough to classify it.
-                if (Math.abs(dx) < DECISION_THRESHOLD && Math.abs(dy) < DECISION_THRESHOLD) return;
-                decided = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
-                if (decided === 'horizontal') {
-                    window.__mixerSwipeActive = true;
-                }
-            }
-        });
-
-        const endSwipe = (e) => {
-            if (!tracking) return;
-            const wasHorizontal = decided === 'horizontal';
-            tracking = false;
-            decided = false;
-            if (!wasHorizontal) {
-                window.__mixerSwipeActive = false;
-                return;
-            }
-            const dx = e.clientX - startX;
-            const currentMode = getMixerMode();
-            // Either direction switches — there are only two modes, so swipe
-            // direction is purely conventional. We just toggle on any
-            // horizontal swipe past the threshold.
-            if (Math.abs(dx) >= SWIPE_THRESHOLD) {
-                const nextMode = currentMode === 'sins' ? 'virtues' : 'sins';
-                // Swipe direction drives the slide: dx<0 = left swipe → row
-                // exits to the left, new row enters from the right.
-                const swipeDir = dx < 0 ? 'left' : 'right';
-                const slideDir = swipeDir === 'left' ? -1 : 1;
-                container.style.setProperty('--slide-dir', slideDir);
-                container.classList.add('mixer-row-exit');
-                const onExitEnd = () => {
-                    container.classList.remove('mixer-row-exit');
-                    setMixerMode(nextMode);
-                    renderSinsMixer({ animateFrom: swipeDir });
-                };
-                container.addEventListener('animationend', onExitEnd, { once: true });
-            }
-            // Reset the flag *after* the render so any in-flight slider
-            // pointermove (about to bail) still sees true.
-            setTimeout(() => { window.__mixerSwipeActive = false; }, 0);
-        };
-
-        container.addEventListener('pointerup', endSwipe);
-        container.addEventListener('pointercancel', endSwipe);
-        container.addEventListener('pointerleave', (e) => {
-            // If the pointer leaves the row mid-swipe without an up event
-            // (rare, but possible on edge cases), treat it as the end.
-            if (tracking) endSwipe(e);
-        });
-    }
 }
+
+// ── Mixer drag-to-switch: 3-panel sliding track ──────────────────────────────
+(function () {
+    const COMMIT_THRESHOLD = 50;
+    const DRAG_THRESHOLD   = 8;
+    const GAP              = 16;
+
+    const origContainer = document.getElementById('sins-mixer');
+    if (!origContainer) return;
+
+    const swipeWrap = document.createElement('div');
+    swipeWrap.style.cssText = 'overflow:hidden;width:100%;';
+
+    const swipeTrack = document.createElement('div');
+    swipeTrack.style.cssText = `display:flex;will-change:transform;gap:${GAP}px;transform:translateX(calc(-100% - ${GAP}px));`;
+
+    const panelPrev = document.createElement('div');
+    const panelNext = document.createElement('div');
+    [panelPrev, panelNext].forEach(p => {
+        p.style.cssText = 'display:flex;justify-content:center;align-items:flex-end;gap:12px;padding:0 4px;flex:0 0 100%;min-width:0;';
+    });
+
+    origContainer.style.flex     = '0 0 100%';
+    origContainer.style.minWidth = '0';
+
+    origContainer.parentNode.insertBefore(swipeWrap, origContainer);
+    origContainer.remove();
+    swipeTrack.appendChild(panelPrev);
+    swipeTrack.appendChild(origContainer);
+    swipeTrack.appendChild(panelNext);
+    swipeWrap.appendChild(swipeTrack);
+
+    function setPos(dx) {
+        swipeTrack.style.transition = 'none';
+        swipeTrack.style.transform  = `translateX(calc(-100% - ${GAP}px + ${dx}px))`;
+    }
+    function animateTo(dx, onDone) {
+        swipeTrack.style.transition = 'transform 0.3s cubic-bezier(0.25,0.46,0.45,0.94)';
+        swipeTrack.style.transform  = `translateX(calc(-100% - ${GAP}px + ${dx}px))`;
+        if (onDone) swipeTrack.addEventListener('transitionend', onDone, { once: true });
+    }
+
+    let startX = 0, startY = 0, tracking = false, dragging = false, currentDx = 0, capturedId = null;
+
+    swipeWrap.addEventListener('pointerdown', (e) => {
+        if (e.target.tagName === 'BUTTON' || tracking) return;
+        startX = e.clientX; startY = e.clientY;
+        currentDx = 0; dragging = false; tracking = true; capturedId = e.pointerId;
+        window.__mixerSwipeActive = false;
+        const otherMode = getMixerMode() === 'sins' ? 'virtues' : 'sins';
+        renderSinsMixer({}, panelPrev, otherMode);
+        renderSinsMixer({}, panelNext, otherMode);
+    });
+
+    swipeWrap.addEventListener('pointermove', (e) => {
+        if (!tracking || e.pointerId !== capturedId) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        if (!dragging) {
+            if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            if (Math.abs(dy) > Math.abs(dx)) { tracking = false; return; }
+            dragging = true;
+            window.__mixerSwipeActive = true;
+            try { swipeWrap.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+
+        e.preventDefault();
+        currentDx = dx;
+        setPos(dx);
+    });
+
+    const endDrag = (e) => {
+        if (!tracking || e.pointerId !== capturedId) return;
+        tracking = false; capturedId = null;
+        if (!dragging) { window.__mixerSwipeActive = false; return; }
+
+        if (Math.abs(currentDx) >= COMMIT_THRESHOLD) {
+            const goNext = currentDx < 0;
+            const w = swipeWrap.offsetWidth;
+            animateTo(goNext ? -(w + GAP) : (w + GAP), () => {
+                const newMode = getMixerMode() === 'sins' ? 'virtues' : 'sins';
+                setMixerMode(newMode);
+                renderSinsMixer();
+                setPos(0);
+                setTimeout(() => { window.__mixerSwipeActive = false; }, 0);
+            });
+        } else {
+            animateTo(0);
+            setTimeout(() => { window.__mixerSwipeActive = false; }, 0);
+        }
+    };
+
+    swipeWrap.addEventListener('pointerup',     endDrag);
+    swipeWrap.addEventListener('pointercancel', endDrag);
+})()
 
 const EXERCISE_LIBRARY_KEY = 'exercise_library';
 const EXERCISE_LOGS_KEY = 'exercise_logs';

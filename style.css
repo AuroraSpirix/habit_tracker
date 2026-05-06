@@ -261,7 +261,7 @@ svg {
     display: flex;
     justify-content: center;
     align-items: flex-end;
-    gap: 10px;
+    gap: 12px;
     margin: 0 auto;
     width: max-content;
     max-width: 100%;
@@ -387,46 +387,9 @@ svg {
 }
 .sin-value.has-value { color: var(--text); }
 
-/* ─── Mode-switch slide animation ──────────────────────────────────
-   When switching sins ↔ virtues, the row slides a short distance in
-   the swipe direction while fading, and the new row slides in from
-   the opposite side. The travel distance is intentionally short
-   (--slide-dist) so the row doesn't fly across the page. Clipping is
-   handled by .avoided-section so the row gets cleanly hidden once it
-   passes the slider boundary.
-   --slide-dir is set inline by JS: -1 = swipe left (new row enters from
-   right, old row exits to left), +1 = swipe right (opposite). */
-#sins-mixer {
-    --slide-dist: 80px;
-}
-
-@keyframes mixer-row-exit {
-    from { transform: translateX(0); opacity: 1; }
-    to   { transform: translateX(calc(var(--slide-dir, -1) * var(--slide-dist))); opacity: 0; }
-}
-
-@keyframes mixer-row-enter {
-    from { transform: translateX(calc(var(--slide-dir, -1) * var(--slide-dist) * -1)); opacity: 0; }
-    to   { transform: translateX(0); opacity: 1; }
-}
-
-#sins-mixer.mixer-row-exit {
-    animation: mixer-row-exit 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-#sins-mixer.mixer-row-enter {
-    animation: mixer-row-enter 0.32s cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    #sins-mixer.mixer-row-exit,
-    #sins-mixer.mixer-row-enter {
-        animation: none;
-    }
-}
 
 @media (max-width: 480px) {
-    #sins-mixer { gap: 3px; padding: 0 2px; --slide-dist: 50px; }
+    #sins-mixer { gap: 3px; padding: 0 2px; }
     .sin-slot { width: 36px; gap: 6px; }
     /* Allow wrapping on mobile because virtue names ("Knowledge", "Integrity",
        "Patience"…) overflow the 36px slot. height:auto + line-height:1.1
@@ -495,8 +458,9 @@ button:hover {
 }
 
 #calendarModal .modal-content {
-    padding: 24px 20px 24px;
+    padding: 15px 20px 10px;
     max-width: 360px;
+    overflow: hidden;
 }
 
 #noteModal .modal-content {
