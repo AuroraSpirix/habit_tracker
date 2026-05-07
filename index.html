@@ -89,19 +89,26 @@
 
     <div id="mindfulnessModal" class="modal">
         <div class="modal-content exercise-modal-content">
-            <div id="mf-screen-list" class="ex-screen">
+            <div class="ex-screen">
                 <h3 class="ex-title">MINDFULNESS</h3>
-                <div id="mf-entry-list" class="exercise-list"></div>
-                <div class="ex-add-row modal-add-btn">
-                    <input id="mfNewEntryInput" type="text" placeholder="Add entry..." class="ex-input"/>
-                    <button id="mfAddEntryBtn" class="ex-add-btn">+</button>
+                <div class="mf-main-row">
+                    <div class="mf-side-ctrl">
+                        <span class="mf-ctrl-label">FOCUS</span>
+                        <span class="mf-ctrl-value" id="mf-focus-val">5</span>
+                        <div class="mf-vert-wrap">
+                            <input type="range" class="mf-vert-slider" id="mf-focus-slider" min="1" max="10" value="5">
+                        </div>
+                    </div>
+                    <svg id="mfClock" viewBox="0 0 200 200" class="mf-clock-svg"></svg>
+                    <div class="mf-side-ctrl">
+                        <span class="mf-ctrl-label">BREATH</span>
+                        <span class="mf-ctrl-value" id="mf-breath-val">5</span>
+                        <div class="mf-vert-wrap">
+                            <input type="range" class="mf-vert-slider" id="mf-breath-slider" min="1" max="10" value="5">
+                        </div>
+                    </div>
                 </div>
                 <button class="ex-close-btn" id="closeMindfulnessModal">CLOSE</button>
-            </div>
-            <div id="mf-screen-notes" class="ex-screen hidden">
-                <h3 class="ex-title editable-title" id="mf-entry-title">ENTRY</h3>
-                <textarea id="mfNotesInput" placeholder="Notes..." class="sp-notes-input mindset-notes"></textarea>
-                <button class="ex-close-btn" id="mfCloseNotes">CLOSE</button>
             </div>
         </div>
     </div>
@@ -113,28 +120,24 @@
                 <div class="muscle-grid mindset-type-grid">
                     <button class="muscle-btn" id="rc-btn-hydration">HYDRATION</button>
                     <button class="muscle-btn" id="rc-btn-cryotherapy">CRYOTHERAPY</button>
-                    <button class="muscle-btn rc-sleep-btn" id="rc-btn-nutrition">
-                        NUTRITION
-                        <div id="rc-nutrition-section" class="rc-sleep-section hidden">
-                            <div class="rc-sleep-row">
-                                <span class="rc-sleep-label">2k</span>
-                                <input type="range" id="rc-nutrition-range" min="2000" max="4000" step="100" value="3000" class="rc-sleep-range">
-                                <span class="rc-sleep-label">4k</span>
-                            </div>
-                            <div id="rc-nutrition-value" class="rc-sleep-value">3000 CAL</div>
+                    <div class="rc-sleep-outer">
+                        <span class="rc-slider-label">NUTRITION</span>
+                        <div class="rc-sleep-row">
+                            <span class="rc-sleep-label">2k</span>
+                            <input type="range" id="rc-nutrition-range" min="2000" max="4000" step="100" value="3000" class="rc-sleep-range">
+                            <span class="rc-sleep-label">4k</span>
                         </div>
-                    </button>
-                    <button class="muscle-btn rc-sleep-btn" id="rc-btn-sleep">
-                        SLEEP
-                        <div id="rc-sleep-section" class="rc-sleep-section hidden">
-                            <div class="rc-sleep-row">
-                                <span class="rc-sleep-label">6</span>
-                                <input type="range" id="rc-sleep-range" min="6" max="10" step="1" value="8" class="rc-sleep-range">
-                                <span class="rc-sleep-label">10</span>
-                            </div>
-                            <div id="rc-sleep-value" class="rc-sleep-value">8 HRS</div>
+                        <div id="rc-nutrition-value" class="rc-sleep-value">3000 CAL</div>
+                    </div>
+                    <div class="rc-sleep-outer">
+                        <span class="rc-slider-label">SLEEP</span>
+                        <div class="rc-sleep-row">
+                            <span class="rc-sleep-label">6</span>
+                            <input type="range" id="rc-sleep-range" min="6" max="10" step="1" value="8" class="rc-sleep-range">
+                            <span class="rc-sleep-label">10</span>
                         </div>
-                    </button>
+                        <div id="rc-sleep-value" class="rc-sleep-value">8 HRS</div>
+                    </div>
                 </div>
                 <button class="ex-close-btn" id="closeRecoveryModal">CLOSE</button>
             </div>
@@ -143,19 +146,54 @@
 
     <div id="reflectionModal" class="modal">
         <div class="modal-content exercise-modal-content">
-            <div id="rf-screen-list" class="ex-screen">
+            <div class="ex-screen">
                 <h3 class="ex-title">REFLECTION</h3>
-                <div id="rf-entry-list" class="exercise-list"></div>
-                <div class="ex-add-row modal-add-btn">
-                    <input id="rfNewEntryInput" type="text" placeholder="Add entry..." class="ex-input"/>
-                    <button id="rfAddEntryBtn" class="ex-add-btn">+</button>
+                <div class="rf-sections">
+                    <div class="rf-section" id="rf-sec-happy">
+                        <div class="rf-section-header" id="rf-hdr-happy">
+                            <span class="rf-question">What made me happy today?</span>
+                            <span class="rf-chevron">›</span>
+                        </div>
+                        <div class="rf-section-body" id="rf-body-happy" >
+                            <div class="rf-input-row"><span class="rf-bullet">1.</span><input class="rf-input" id="rf-happy-0" type="text"></div>
+                            <div class="rf-input-row"><span class="rf-bullet">2.</span><input class="rf-input" id="rf-happy-1" type="text"></div>
+                            <div class="rf-input-row"><span class="rf-bullet">3.</span><input class="rf-input" id="rf-happy-2" type="text"></div>
+                            <div class="rf-input-row"><span class="rf-bullet">4.</span><input class="rf-input" id="rf-happy-3" type="text"></div>
+                            <div class="rf-input-row"><span class="rf-bullet">5.</span><input class="rf-input" id="rf-happy-4" type="text"></div>
+                        </div>
+                    </div>
+                    <div class="rf-section" id="rf-sec-grateful">
+                        <div class="rf-section-header" id="rf-hdr-grateful">
+                            <span class="rf-question">What am I grateful for today?</span>
+                            <span class="rf-chevron">›</span>
+                        </div>
+                        <div class="rf-section-body" id="rf-body-grateful" >
+                            <div class="rf-input-row"><span class="rf-bullet">1.</span><input class="rf-input" id="rf-grateful-0" type="text"></div>
+                            <div class="rf-input-row"><span class="rf-bullet">2.</span><input class="rf-input" id="rf-grateful-1" type="text"></div>
+                            <div class="rf-input-row"><span class="rf-bullet">3.</span><input class="rf-input" id="rf-grateful-2" type="text"></div>
+                        </div>
+                    </div>
+                    <div class="rf-section" id="rf-sec-learned">
+                        <div class="rf-section-header" id="rf-hdr-learned">
+                            <span class="rf-question">What did I learn today?</span>
+                            <span class="rf-chevron">›</span>
+                        </div>
+                        <div class="rf-section-body" id="rf-body-learned" >
+                            <div class="rf-input-row"><span class="rf-bullet">1.</span><input class="rf-input" id="rf-learned-0" type="text"></div>
+                            <div class="rf-input-row"><span class="rf-bullet">2.</span><input class="rf-input" id="rf-learned-1" type="text"></div>
+                        </div>
+                    </div>
+                    <div class="rf-section" id="rf-sec-better">
+                        <div class="rf-section-header" id="rf-hdr-better">
+                            <span class="rf-question">What will I do better tomorrow?</span>
+                            <span class="rf-chevron">›</span>
+                        </div>
+                        <div class="rf-section-body" id="rf-body-better" >
+                            <div class="rf-input-row"><span class="rf-bullet">1.</span><input class="rf-input" id="rf-better-0" type="text"></div>
+                        </div>
+                    </div>
                 </div>
                 <button class="ex-close-btn" id="closeReflectionModal">CLOSE</button>
-            </div>
-            <div id="rf-screen-notes" class="ex-screen hidden">
-                <h3 class="ex-title editable-title" id="rf-entry-title">ENTRY</h3>
-                <textarea id="rfNotesInput" placeholder="Notes..." class="sp-notes-input mindset-notes"></textarea>
-                <button class="ex-close-btn" id="rfCloseNotes">CLOSE</button>
             </div>
         </div>
     </div>

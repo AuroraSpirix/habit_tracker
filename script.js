@@ -208,12 +208,16 @@ function isCategoryCompleted(catName) {
         if (!raw) return false;
         const all = JSON.parse(raw);
         const day = all[getDateKey(viewDate)] || {};
-        return !!(day.nutrition != null || day.hydration || day.cryotherapy || day.sleep != null);
+        return !!(day.hydration || day.cryotherapy || day.nutrition != null || day.sleep != null);
     }
-    if (['Mindfulness', 'Reflection'].includes(catName)) {
-        const all = JSON.parse(Storage.getItem('journal_entries__' + catName.toLowerCase()) || '{}');
-        const entries = all[getDateKey(viewDate)] || [];
-        return entries.some(e => e.topic || e.notes);
+    if (catName === 'Mindfulness') {
+        return getMfMinutes() > 0;
+    }
+    if (catName === 'Reflection') {
+        const raw = Storage.getItem('reflection_321');
+        if (!raw) return false;
+        const day = (JSON.parse(raw))[getDateKey(viewDate)] || {};
+        return [...(day.happy || []), ...(day.grateful || []), ...(day.learned || []), ...(day.better || [])].some(v => v && v.trim());
     }
     if (catName === 'Mindset') {
         return ['book', 'video', 'podcast', 'conversation'].some(t => getMindsetLibraryForType(t).length > 0);
@@ -928,9 +932,9 @@ function openNoteModal(index) {
     const cat = categories[index];
     if (cat.name === 'Mobility') { openExerciseModal(); return; }
     if (cat.name === 'Spirituality') { openSpiritualModal(); return; }
-    if (cat.name === 'Mindfulness') { openJournalModal('mindfulness'); return; }
+    if (cat.name === 'Mindfulness') { openMindfulnessModal(); return; }
     if (cat.name === 'Recovery') { openRecoveryModal(); return; }
-    if (cat.name === 'Reflection') { openJournalModal('reflection'); return; }
+    if (cat.name === 'Reflection') { openReflectionModal(); return; }
     if (cat.name === 'Mindset') { openMindsetModal(); return; }
     activeNoteIdx = index;
     noteTitle.textContent = cat.name.toUpperCase() + " NOTES";
@@ -2071,9 +2075,7 @@ function openSpiritualModal() {
 }
 
 const JOURNAL_CONFIGS = {
-    spiritual:   { key: 'spiritual_entries',            modalId: 'spiritualModal',    prefix: 'sp' },
-    mindfulness: { key: 'journal_entries__mindfulness', modalId: 'mindfulnessModal',  prefix: 'mf' },
-    reflection:  { key: 'journal_entries__reflection',  modalId: 'reflectionModal',   prefix: 'rf' },
+    spiritual: { key: 'spiritual_entries', modalId: 'spiritualModal', prefix: 'sp' },
 };
 let activeJournalType = null;
 let activeJournalEntryId = null;
@@ -2373,8 +2375,13 @@ function saveRecoveryData(data) {
 
 function openRecoveryModal() {
     renderRecoveryButtons();
-    document.getElementById('rc-sleep-section').classList.add('hidden');
-    document.getElementById('rc-nutrition-section').classList.add('hidden');
+    const data = getRecoveryData();
+    const nutrition = data.nutrition != null ? data.nutrition : 3000;
+    const sleep = data.sleep != null ? data.sleep : 8;
+    document.getElementById('rc-nutrition-range').value = nutrition;
+    document.getElementById('rc-nutrition-value').textContent = nutrition + ' CAL';
+    document.getElementById('rc-sleep-range').value = sleep;
+    document.getElementById('rc-sleep-value').textContent = sleep + ' HRS';
     document.getElementById('recoveryModal').style.display = 'flex';
 }
 
@@ -2384,10 +2391,6 @@ function renderRecoveryButtons() {
         const btn = document.getElementById('rc-btn-' + key);
         if (btn) btn.classList.toggle('has-data', !!data[key]);
     });
-    const sleepBtn = document.getElementById('rc-btn-sleep');
-    if (sleepBtn) sleepBtn.classList.toggle('has-data', data.sleep != null);
-    const nutritionBtn = document.getElementById('rc-btn-nutrition');
-    if (nutritionBtn) nutritionBtn.classList.toggle('has-data', data.nutrition != null);
 }
 
 ['hydration', 'cryotherapy'].forEach(key => {
@@ -2400,33 +2403,6 @@ function renderRecoveryButtons() {
     };
 });
 
-document.getElementById('rc-btn-nutrition').onclick = (e) => {
-    if (e.target.closest('#rc-nutrition-section')) return;
-    const data = getRecoveryData();
-    const section = document.getElementById('rc-nutrition-section');
-    const sliderOpen = !section.classList.contains('hidden');
-
-    if (sliderOpen) {
-        delete data.nutrition;
-        saveRecoveryData(data);
-        section.classList.add('hidden');
-        renderRecoveryButtons();
-        refreshChartAfterDataChange();
-    } else if (data.nutrition != null) {
-        document.getElementById('rc-nutrition-range').value = data.nutrition;
-        document.getElementById('rc-nutrition-value').textContent = data.nutrition + ' CAL';
-        section.classList.remove('hidden');
-    } else {
-        data.nutrition = 3000;
-        saveRecoveryData(data);
-        document.getElementById('rc-nutrition-range').value = 3000;
-        document.getElementById('rc-nutrition-value').textContent = '3000 CAL';
-        section.classList.remove('hidden');
-        renderRecoveryButtons();
-        refreshChartAfterDataChange();
-    }
-};
-
 document.getElementById('rc-nutrition-range').addEventListener('input', () => {
     const val = parseInt(document.getElementById('rc-nutrition-range').value);
     document.getElementById('rc-nutrition-value').textContent = val + ' CAL';
@@ -2435,36 +2411,6 @@ document.getElementById('rc-nutrition-range').addEventListener('input', () => {
     saveRecoveryData(data);
     refreshChartAfterDataChange();
 });
-
-document.getElementById('rc-btn-sleep').onclick = (e) => {
-    if (e.target.closest('#rc-sleep-section')) return;
-    const data = getRecoveryData();
-    const sleepSection = document.getElementById('rc-sleep-section');
-    const sliderOpen = !sleepSection.classList.contains('hidden');
-
-    if (sliderOpen) {
-        // slider visible → toggle off
-        delete data.sleep;
-        saveRecoveryData(data);
-        sleepSection.classList.add('hidden');
-        renderRecoveryButtons();
-        refreshChartAfterDataChange();
-    } else if (data.sleep != null) {
-        // already saved, slider hidden → just reveal slider at saved value
-        document.getElementById('rc-sleep-range').value = data.sleep;
-        document.getElementById('rc-sleep-value').textContent = data.sleep + ' HRS';
-        sleepSection.classList.remove('hidden');
-    } else {
-        // not set yet → turn on at default 8 and show slider
-        data.sleep = 8;
-        saveRecoveryData(data);
-        document.getElementById('rc-sleep-range').value = 8;
-        document.getElementById('rc-sleep-value').textContent = '8 HRS';
-        sleepSection.classList.remove('hidden');
-        renderRecoveryButtons();
-        refreshChartAfterDataChange();
-    }
-};
 
 document.getElementById('rc-sleep-range').addEventListener('input', () => {
     const val = parseInt(document.getElementById('rc-sleep-range').value);
@@ -2478,6 +2424,316 @@ document.getElementById('rc-sleep-range').addEventListener('input', () => {
 document.getElementById('closeRecoveryModal').onclick = () => {
     document.getElementById('recoveryModal').style.display = 'none';
 };
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── REFLECTION 3-2-1 ────────────────────────────────────────────────────────
+const RF_SECTIONS = { happy: 5, grateful: 3, learned: 2, better: 1 };
+
+function getRfData() {
+    const raw = Storage.getItem('reflection_321');
+    const all = raw ? JSON.parse(raw) : {};
+    const day = all[getDateKey(viewDate)] || {};
+    return {
+        happy:    day.happy    || ['', '', '', '', ''],
+        grateful: day.grateful || ['', '', ''],
+        learned:  day.learned  || ['', ''],
+        better:   day.better   || [''],
+    };
+}
+
+function saveRfData(data) {
+    const raw = Storage.getItem('reflection_321');
+    const all = raw ? JSON.parse(raw) : {};
+    all[getDateKey(viewDate)] = data;
+    Storage.setItem('reflection_321', JSON.stringify(all));
+}
+
+function updateRfSectionStyle(section, data) {
+    const hasContent = data[section].some(v => v.trim());
+    document.getElementById('rf-sec-' + section).classList.toggle('rf-has-content', hasContent);
+}
+
+function openReflectionModal() {
+    const data = getRfData();
+    Object.keys(RF_SECTIONS).forEach(section => {
+        data[section].forEach((val, i) => {
+            document.getElementById('rf-' + section + '-' + i).value = val;
+        });
+        updateRfSectionStyle(section, data);
+        // reset chevron + collapse all on open
+        const hdr = document.getElementById('rf-hdr-' + section);
+        const body = document.getElementById('rf-body-' + section);
+        hdr.classList.remove('rf-open');
+        body.classList.remove('rf-body-open');
+    });
+    document.getElementById('reflectionModal').style.display = 'flex';
+}
+
+Object.entries(RF_SECTIONS).forEach(([section, count]) => {
+    document.getElementById('rf-hdr-' + section).addEventListener('click', () => {
+        const body = document.getElementById('rf-body-' + section);
+        const hdr  = document.getElementById('rf-hdr-' + section);
+        const opening = !body.classList.contains('rf-body-open');
+
+        const anyOpen = Object.keys(RF_SECTIONS).some(s =>
+            document.getElementById('rf-body-' + s).classList.contains('rf-body-open')
+        );
+
+        Object.keys(RF_SECTIONS).forEach(s => {
+            document.getElementById('rf-body-' + s).classList.remove('rf-body-open');
+            document.getElementById('rf-hdr-' + s).classList.remove('rf-open');
+        });
+
+        if (opening) {
+            setTimeout(() => {
+                body.classList.add('rf-body-open');
+                hdr.classList.add('rf-open');
+                setTimeout(() => document.getElementById('rf-' + section + '-0').focus(), 50);
+            }, anyOpen ? 320 : 0);
+        }
+    });
+
+    for (let i = 0; i < count; i++) {
+        const input = document.getElementById('rf-' + section + '-' + i);
+
+        input.addEventListener('input', (e) => {
+            const data = getRfData();
+            data[section][i] = e.target.value;
+            saveRfData(data);
+            updateRfSectionStyle(section, data);
+            refreshChartAfterDataChange();
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            if (i < count - 1) {
+                document.getElementById('rf-' + section + '-' + (i + 1)).focus();
+            } else {
+                const sections = Object.keys(RF_SECTIONS);
+                const nextSection = sections[sections.indexOf(section) + 1];
+                document.getElementById('rf-body-' + section).classList.remove('rf-body-open');
+                document.getElementById('rf-hdr-' + section).classList.remove('rf-open');
+                if (nextSection) {
+                    document.getElementById('rf-body-' + nextSection).classList.add('rf-body-open');
+                    document.getElementById('rf-hdr-' + nextSection).classList.add('rf-open');
+                    setTimeout(() => document.getElementById('rf-' + nextSection + '-0').focus(), 50);
+                }
+            }
+        });
+    }
+});
+
+document.getElementById('closeReflectionModal').onclick = () => {
+    document.getElementById('reflectionModal').style.display = 'none';
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── MINDFULNESS CLOCK ───────────────────────────────────────────────────────
+function getMfMinutes() {
+    const raw = Storage.getItem('mindfulness_minutes');
+    const all = raw ? JSON.parse(raw) : {};
+    return all[getDateKey(viewDate)] || 0;
+}
+function saveMfMinutes(minutes) {
+    const raw = Storage.getItem('mindfulness_minutes');
+    const all = raw ? JSON.parse(raw) : {};
+    all[getDateKey(viewDate)] = minutes;
+    Storage.setItem('mindfulness_minutes', JSON.stringify(all));
+}
+function getMfBreathing() {
+    const raw = Storage.getItem('mindfulness_breathing');
+    const all = raw ? JSON.parse(raw) : {};
+    return all[getDateKey(viewDate)] ?? 5;
+}
+function saveMfBreathing(val) {
+    const raw = Storage.getItem('mindfulness_breathing');
+    const all = raw ? JSON.parse(raw) : {};
+    all[getDateKey(viewDate)] = val;
+    Storage.setItem('mindfulness_breathing', JSON.stringify(all));
+}
+function getMfFocus() {
+    const raw = Storage.getItem('mindfulness_focus');
+    const all = raw ? JSON.parse(raw) : {};
+    return all[getDateKey(viewDate)] ?? 5;
+}
+function saveMfFocus(val) {
+    const raw = Storage.getItem('mindfulness_focus');
+    const all = raw ? JSON.parse(raw) : {};
+    all[getDateKey(viewDate)] = val;
+    Storage.setItem('mindfulness_focus', JSON.stringify(all));
+}
+
+let mfDragging = false;
+let mfTotalDeg = 0;
+let mfLastAngleDeg = 0;
+
+function getMfAngleDeg(e) {
+    const svg = document.getElementById('mfClock');
+    const rect = svg.getBoundingClientRect();
+    const dx = e.clientX - (rect.left + rect.width / 2);
+    const dy = e.clientY - (rect.top + rect.height / 2);
+    return (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
+}
+
+function updateMfClockDisplay(minutes) {
+    const svg = document.getElementById('mfClock');
+    if (!svg) return;
+    const cx = 100, cy = 100, handR = 72;
+    const angle = (minutes / 60) * 2 * Math.PI - Math.PI / 2;
+    const hx = cx + handR * Math.cos(angle);
+    const hy = cy + handR * Math.sin(angle);
+
+    const hand = document.getElementById('mfHand');
+    if (hand) { hand.setAttribute('x2', hx); hand.setAttribute('y2', hy); hand.setAttribute('opacity', minutes > 0 ? '1' : '0.2'); }
+
+
+    const progress = document.getElementById('mfProgress');
+    if (progress) {
+        const circumference = 2 * Math.PI * 78;
+        progress.setAttribute('stroke-dashoffset', circumference * (1 - minutes / 60));
+        progress.setAttribute('opacity', minutes > 0 ? '0.6' : '0');
+    }
+
+    const minText = document.getElementById('mfMinText');
+    if (minText) minText.textContent = minutes + ' MIN';
+}
+
+function initMfClock() {
+    const svg = document.getElementById('mfClock');
+    if (!svg) return;
+    svg.innerHTML = '';
+    const ns = 'http://www.w3.org/2000/svg';
+    const cx = 100, cy = 100, r = 90, trackR = 78;
+
+    const bg = document.createElementNS(ns, 'circle');
+    bg.setAttribute('cx', cx); bg.setAttribute('cy', cy); bg.setAttribute('r', r);
+    bg.setAttribute('fill', '#141414'); bg.setAttribute('stroke', 'rgba(255,255,255,0.07)'); bg.setAttribute('stroke-width', '1');
+    svg.appendChild(bg);
+
+    const track = document.createElementNS(ns, 'circle');
+    track.setAttribute('cx', cx); track.setAttribute('cy', cy); track.setAttribute('r', trackR);
+    track.setAttribute('fill', 'none'); track.setAttribute('stroke', '#1c1c1c'); track.setAttribute('stroke-width', '5');
+    svg.appendChild(track);
+
+    const circumference = 2 * Math.PI * trackR;
+    const progress = document.createElementNS(ns, 'circle');
+    progress.setAttribute('id', 'mfProgress');
+    progress.setAttribute('cx', cx); progress.setAttribute('cy', cy); progress.setAttribute('r', trackR);
+    progress.setAttribute('fill', 'none'); progress.setAttribute('stroke', '#c9a96e'); progress.setAttribute('stroke-width', '5');
+    progress.setAttribute('stroke-linecap', 'round');
+    progress.setAttribute('stroke-dasharray', circumference); progress.setAttribute('stroke-dashoffset', circumference);
+    progress.setAttribute('transform', `rotate(-90 ${cx} ${cy})`); progress.setAttribute('opacity', '0');
+    svg.appendChild(progress);
+
+    for (let i = 0; i < 60; i++) {
+        const angle = (i / 60) * Math.PI * 2 - Math.PI / 2;
+        const isMajor = i % 5 === 0;
+        const r1 = r - (isMajor ? 13 : 7);
+        const r2 = r - 3;
+        const tick = document.createElementNS(ns, 'line');
+        tick.setAttribute('x1', cx + r1 * Math.cos(angle)); tick.setAttribute('y1', cy + r1 * Math.sin(angle));
+        tick.setAttribute('x2', cx + r2 * Math.cos(angle)); tick.setAttribute('y2', cy + r2 * Math.sin(angle));
+        tick.setAttribute('stroke', isMajor ? 'rgba(201,169,110,0.45)' : 'rgba(255,255,255,0.08)');
+        tick.setAttribute('stroke-width', isMajor ? '1.5' : '0.8');
+        svg.appendChild(tick);
+
+        if (isMajor) {
+            const label = document.createElementNS(ns, 'text');
+            const lr = r - 30;
+            label.setAttribute('x', cx + lr * Math.cos(angle)); label.setAttribute('y', cy + lr * Math.sin(angle));
+            label.setAttribute('text-anchor', 'middle'); label.setAttribute('dominant-baseline', 'central');
+            label.setAttribute('fill', 'rgba(240,236,228,0.45)'); label.setAttribute('font-size', '11'); label.setAttribute('font-family', 'monospace');
+            label.textContent = i === 0 ? 60 : i;
+            svg.appendChild(label);
+        }
+    }
+
+    const boxRect = document.createElementNS(ns, 'rect');
+    boxRect.setAttribute('id', 'mfMinRect');
+    boxRect.setAttribute('x', '74'); boxRect.setAttribute('y', '118');
+    boxRect.setAttribute('width', '52'); boxRect.setAttribute('height', '16');
+    boxRect.setAttribute('rx', '3');
+    boxRect.setAttribute('fill', '#141414'); boxRect.setAttribute('stroke', 'rgba(255,255,255,0.07)');
+    svg.appendChild(boxRect);
+
+    const boxText = document.createElementNS(ns, 'text');
+    boxText.setAttribute('id', 'mfMinText');
+    boxText.setAttribute('x', '100'); boxText.setAttribute('y', '126');
+    boxText.setAttribute('text-anchor', 'middle'); boxText.setAttribute('dominant-baseline', 'central');
+    boxText.setAttribute('fill', '#c9a96e'); boxText.setAttribute('font-size', '7.5');
+    boxText.setAttribute('font-family', 'monospace'); boxText.setAttribute('letter-spacing', '1.5');
+    boxText.textContent = '0 MIN';
+    svg.appendChild(boxText);
+
+    const hand = document.createElementNS(ns, 'line');
+    hand.setAttribute('id', 'mfHand');
+    hand.setAttribute('x1', cx); hand.setAttribute('y1', cy); hand.setAttribute('x2', cx); hand.setAttribute('y2', cy - 72);
+    hand.setAttribute('stroke', '#c9a96e'); hand.setAttribute('stroke-width', '2'); hand.setAttribute('stroke-linecap', 'round'); hand.setAttribute('opacity', '0.2');
+    svg.appendChild(hand);
+
+    const dot = document.createElementNS(ns, 'circle');
+    dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('r', '4');
+    dot.setAttribute('fill', '#c9a96e');
+    svg.appendChild(dot);
+
+    svg.addEventListener('pointerdown', (e) => {
+        mfDragging = true;
+        svg.setPointerCapture(e.pointerId);
+        mfLastAngleDeg = getMfAngleDeg(e);
+        e.preventDefault();
+    });
+    svg.addEventListener('pointermove', (e) => {
+        if (!mfDragging) return;
+        const angle = getMfAngleDeg(e);
+        let delta = angle - mfLastAngleDeg;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        mfTotalDeg = Math.max(0, Math.min(360, mfTotalDeg + delta));
+        mfLastAngleDeg = angle;
+        updateMfClockDisplay(Math.round(mfTotalDeg / 6));
+    });
+    svg.addEventListener('pointerup', () => {
+        if (!mfDragging) return;
+        mfDragging = false;
+        const minutes = Math.round(mfTotalDeg / 6);
+        saveMfMinutes(minutes);
+        refreshChartAfterDataChange();
+    });
+    svg.addEventListener('pointercancel', () => { mfDragging = false; });
+}
+
+function openMindfulnessModal() {
+    mfTotalDeg = (getMfMinutes() / 60) * 360;
+    updateMfClockDisplay(Math.round(mfTotalDeg / 6));
+
+    const breathing = getMfBreathing();
+    const focus = getMfFocus();
+    document.getElementById('mf-breath-slider').value = breathing;
+    document.getElementById('mf-breath-val').textContent = breathing;
+    document.getElementById('mf-focus-slider').value = focus;
+    document.getElementById('mf-focus-val').textContent = focus;
+
+    document.getElementById('mindfulnessModal').style.display = 'flex';
+}
+
+document.getElementById('closeMindfulnessModal').onclick = () => {
+    document.getElementById('mindfulnessModal').style.display = 'none';
+};
+
+document.getElementById('mf-breath-slider').addEventListener('input', () => {
+    const val = parseInt(document.getElementById('mf-breath-slider').value);
+    document.getElementById('mf-breath-val').textContent = val;
+    saveMfBreathing(val);
+});
+
+document.getElementById('mf-focus-slider').addEventListener('input', () => {
+    const val = parseInt(document.getElementById('mf-focus-slider').value);
+    document.getElementById('mf-focus-val').textContent = val;
+    saveMfFocus(val);
+});
+
+initMfClock();
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MINDSET_NOTES_KEY = 'mindset_notes';

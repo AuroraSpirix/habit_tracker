@@ -726,7 +726,7 @@ button:hover {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
-    margin-bottom: 14px;
+    margin-bottom: 20px;
 }
 
 .mobility-extras { margin-top: 8px; }
@@ -1350,29 +1350,22 @@ p {
     text-shadow: 0 0 8px rgba(61,220,132,0.4);
 }
 
-/* ─── Recovery modal sleep slider ───────────────────────────────────── */
 
-/* The Sleep button expands vertically to contain the slider inline */
-.rc-sleep-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    height: auto !important;
-}
-
-.rc-sleep-section {
-    width: 100%;
+/* ─── Recovery sliders ───────────────────────────────────────────────────── */
+.rc-sleep-outer {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    animation: fadeIn 0.18s cubic-bezier(0.4,0,0.2,1);
+    padding: 10px 10px 0;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to   { opacity: 1; transform: translateY(0); }
+.rc-slider-label {
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    text-transform: uppercase;
 }
 
 .rc-sleep-row {
@@ -1394,7 +1387,7 @@ p {
 
 .rc-sleep-range {
     -webkit-appearance: none;
-    appearance: none; /* standard property alongside vendor prefix */
+    appearance: none;
     flex: 1;
     height: 4px;
     background: var(--surface-3);
@@ -1438,4 +1431,198 @@ p {
     color: var(--gold);
     text-align: center;
     text-transform: uppercase;
+}
+
+/* ─── Reflection 3-2-1 ─────────────────────────────────────────────────────── */
+.rf-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.rf-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    transition: border-color var(--transition);
+}
+
+.rf-section.rf-has-content {
+    border-color: rgba(61,220,132,0.25);
+}
+
+.rf-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background var(--transition);
+}
+
+.rf-section-header:hover { background: var(--surface-2); }
+
+.rf-question {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    flex: 1;
+}
+
+.rf-section.rf-has-content .rf-question { color: var(--green); }
+
+.rf-chevron {
+    font-size: 1.1rem;
+    color: var(--text-faint);
+    transition: transform var(--transition);
+    line-height: 1;
+}
+
+.rf-section-header.rf-open .rf-chevron { transform: rotate(90deg); }
+
+.rf-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 16px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1),
+                opacity 0.28s ease,
+                padding 0.35s cubic-bezier(0.4,0,0.2,1);
+}
+
+.rf-section-body.rf-body-open {
+    max-height: 500px;
+    opacity: 1;
+    padding: 4px 16px 14px;
+}
+
+.rf-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    transition: border-color var(--transition);
+}
+
+.rf-input-row:focus-within { border-bottom-color: rgba(201,169,110,0.4); }
+
+.rf-bullet {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.rf-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 6px 2px;
+    outline: none;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+/* ─── Mindfulness clock ────────────────────────────────────────────────────── */
+.mf-main-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 16px 0 20px;
+}
+
+
+.mf-clock-svg {
+    width: 260px;
+    height: 260px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.mf-clock-svg:active { cursor: grabbing; }
+
+.mf-side-ctrl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.mf-ctrl-label {
+    font-family: var(--font-mono);
+    font-size: 0.48rem;
+    letter-spacing: 0.14em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+}
+
+.mf-ctrl-value {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--gold);
+    min-width: 1ch;
+    text-align: center;
+}
+
+.mf-vert-wrap {
+    position: relative;
+    width: 28px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mf-vert-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 180px;
+    height: 4px;
+    transform: rotate(-90deg);
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.mf-vert-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 6px rgba(201,169,110,0.5);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mf-vert-slider:active::-webkit-slider-thumb {
+    transform: scale(1.2);
+    box-shadow: 0 0 14px rgba(201,169,110,0.7);
+}
+
+.mf-vert-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 6px rgba(201,169,110,0.5);
 }
