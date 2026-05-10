@@ -1,17 +1,23 @@
-// ─── JSONBin Storage Layer ────────────────────────────────────────────────────
-// Single source of truth: one JSONBin document holds ALL app data as a flat
-// key→value map (values are JSON strings, matching the localStorage API).
-// A synchronous in-memory cache lets the rest of the code stay unchanged.
+// ─── Supabase Storage Layer ───────────────────────────────────────────────────
+// All app data lives in one row of a kv_store table per authenticated user.
+// The row's `data` column is a JSON blob holding the same flat key→value map
+// that JSONBin used to store, so the rest of the app code (Storage.getItem
+// / setItem / removeItem) stays unchanged.
+//
+// Setup (do once in the Supabase dashboard — see the guide in chat):
+//   1) Create a project, copy URL + anon key, paste into the constants below.
+//   2) Run the SQL from the guide to create the kv_store table + RLS policies.
+//   3) Enable Email auth (or Google/Magic Link) in Authentication → Providers.
 
-const JSONBIN_URL = 'https://api.jsonbin.io/v3/b/69f53af2856a6821899747a5';
+const SUPABASE_URL  = 'https://xuebnjgsftnqpvjntthd.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1ZWJuamdzZnRucXB2am50dGhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzNzU4NzQsImV4cCI6MjA5Mzk1MTg3NH0.Xfn1g0fJvhBIit8XY3Fy3yDcIyPQiIp8D_QnNaSoALQ';
 
-const JSONBIN_HEADERS = {
-  'Content-Type': 'application/json',
-  'X-Master-Key': '$2a$10$3y.dwt/3tzWk3GSu3tXtDeFKHKk25l68iLnGPUjauJA8zdcHfmMji'
-};
-
-let _cache = {};          // in-memory mirror of the bin
-let _saveTimer = null;    // debounce handle
+let _cache  = {};       // in-memory mirror of the user's data row
+let _saveTimer = null;  // debounce handle
+let _loaded = false;    // becomes true ONLY after a successful load
+let _dirty  = false;    // tracks whether we have unsaved changes
+let _sb     = null;     // Supabase client, set after the SDK loads
+let _userId = null;     // current authenticated user's id
 
 const Storage = {
     getItem(key) {
@@ -19,60 +25,208 @@ const Storage = {
     },
     setItem(key, value) {
         _cache[key] = value;
+        _dirty = true;
         _scheduleSave();
     },
     removeItem(key) {
         delete _cache[key];
+        _dirty = true;
         _scheduleSave();
     }
 };
 
 function _scheduleSave() {
-    if (_saveTimer) return; // already scheduled
+    if (!_loaded) return;          // never save before initial load completes
+    if (_saveTimer) return;        // already scheduled
     _saveTimer = setTimeout(() => {
         _saveTimer = null;
-        _flushToJsonBin();
-    }, 10000); // save 10 seconds after the first change
+        _flushToCloud();
+    }, 10000);                     // 10s debounce, same as before
 }
 
-// Save immediately when the user closes/leaves the page.
-// visibilitychange covers mobile (tab switch, home button).
-// beforeunload covers desktop browser close/navigate.
 function _saveNow() {
+    if (!_loaded || !_dirty) return;
     clearTimeout(_saveTimer);
     _saveTimer = null;
-    const blob = new Blob([JSON.stringify(_cache)], { type: 'application/json' });
-    navigator.sendBeacon(JSONBIN_URL, blob);
+    _flushToCloud(true);
 }
 window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') _saveNow();
 });
+window.addEventListener('pagehide', _saveNow);
 window.addEventListener('beforeunload', _saveNow);
 
-async function _flushToJsonBin() {
+async function _flushToCloud(immediate) {
+    if (!_loaded || !_sb || !_userId) return;
     try {
-        await fetch(JSONBIN_URL, {
-            method: 'PUT',
-            headers: JSONBIN_HEADERS,
-            body: JSON.stringify(_cache)
-        });
+        // upsert: insert if missing, update if present. Single row per user.
+        const { error } = await _sb
+            .from('kv_store')
+            .upsert(
+                { user_id: _userId, data: _cache, updated_at: new Date().toISOString() },
+                { onConflict: 'user_id' }
+            );
+        if (error) {
+            console.warn('Supabase save failed:', error.message);
+            return;
+        }
+        _dirty = false;
     } catch (e) {
-        console.warn('JSONBin save failed:', e);
+        console.warn('Supabase save threw:', e);
     }
 }
 
-async function _loadFromJsonBin() {
+async function _loadFromCloud() {
+    if (!_sb || !_userId) return;
     try {
-        const res = await fetch(JSONBIN_URL + '/latest', { headers: JSONBIN_HEADERS });
-        if (res.ok) {
-            const data = await res.json();
-            _cache = data.record || {};
+        const { data, error } = await _sb
+            .from('kv_store')
+            .select('data')
+            .eq('user_id', _userId)
+            .maybeSingle();
+        if (error) {
+            console.warn('Supabase load failed:', error.message);
+            return;
         }
+        _cache  = (data && data.data) ? data.data : {};
+        _loaded = true;
     } catch (e) {
-        console.warn('JSONBin load failed, starting fresh:', e);
-        _cache = {};
+        console.warn('Supabase load threw, refusing to save until reload succeeds:', e);
+        // Deliberately do NOT set _loaded = true.
     }
 }
+
+// ─── Sign-in overlay ──────────────────────────────────────────────────────────
+// A minimal email-magic-link flow. Renders a fullscreen card the first time
+// you open the app on a device. After clicking the link in the email, the
+// session is stored locally (Supabase SDK handles this) and the overlay
+// won't appear again on this device.
+function _renderSignInOverlay() {
+    if (document.getElementById('auth-overlay')) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'auth-overlay';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#0a0a0a;display:flex;align-items:center;justify-content:center;padding:1.5rem;font-family:inherit;color:#f0ece4;';
+    wrap.innerHTML = `
+      <div style="max-width:340px;width:100%;text-align:center;">
+        <h2 style="font-family:inherit;letter-spacing:0.1em;font-weight:400;margin-bottom:0.4rem;">SIGN IN</h2>
+        <p style="opacity:0.55;font-size:0.85rem;margin:0 0 1.4rem;">Enter your email — we'll send a one-tap login link.</p>
+        <input id="auth-email" type="email" placeholder="you@example.com"
+               style="width:100%;padding:0.7rem 0.8rem;background:#141414;border:1px solid #333;border-radius:6px;color:#f0ece4;font-size:0.95rem;margin-bottom:0.8rem;box-sizing:border-box;" />
+        <button id="auth-send"
+                style="width:100%;padding:0.7rem;background:#c9a96e;color:#0a0a0a;border:none;border-radius:6px;font-weight:600;letter-spacing:0.05em;cursor:pointer;">SEND LINK</button>
+        <p id="auth-status" style="margin-top:1rem;font-size:0.8rem;opacity:0.7;min-height:1.2em;"></p>
+      </div>`;
+    document.body.appendChild(wrap);
+    const status = wrap.querySelector('#auth-status');
+    wrap.querySelector('#auth-send').onclick = async () => {
+        const email = wrap.querySelector('#auth-email').value.trim();
+        if (!email) { status.textContent = 'Please enter your email.'; return; }
+        status.textContent = 'Sending…';
+        const { error } = await _sb.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: window.location.href }
+        });
+        status.textContent = error
+            ? ('Error: ' + error.message)
+            : 'Check your email for the link.';
+    };
+}
+function _removeSignInOverlay() {
+    const el = document.getElementById('auth-overlay');
+    if (el) el.remove();
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+// Loads the Supabase SDK from CDN, then either signs you in (existing
+// session) or shows the sign-in overlay. Once authenticated, it loads your
+// row and resolves so the rest of the app can render with real data.
+async function _bootCloud() {
+    // Lazy-load the Supabase SDK so the app's HTML can load instantly.
+    if (!window.supabase) {
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('Failed to load Supabase SDK'));
+            document.head.appendChild(s);
+        });
+    }
+    _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+
+    // Wait for either an existing session or a fresh sign-in.
+    const session = await new Promise((resolve) => {
+        _sb.auth.getSession().then(({ data }) => {
+            if (data.session) return resolve(data.session);
+            _renderSignInOverlay();
+            const { data: sub } = _sb.auth.onAuthStateChange((_event, s) => {
+                if (s) { sub.subscription.unsubscribe(); resolve(s); }
+            });
+        });
+    });
+
+    _userId = session.user.id;
+    _removeSignInOverlay();
+    await _loadFromCloud();
+
+    // Realtime: if the same account edits on another device, pull in changes.
+    _sb.channel('kv_' + _userId)
+       .on('postgres_changes',
+           { event: '*', schema: 'public', table: 'kv_store', filter: 'user_id=eq.' + _userId },
+           (payload) => {
+               // Only adopt remote changes when we have nothing pending locally,
+               // so we don't clobber a local edit the user just made.
+               if (_dirty) return;
+               if (payload.new && payload.new.data) {
+                   _cache = payload.new.data;
+                   if (typeof loadDayData === 'function') loadDayData();
+               }
+           })
+       .subscribe();
+}
+
+// Kept under the original name for the call site below — it's the
+// "wait until cloud data is ready" promise the rest of the app relies on.
+async function _loadFromJsonBin() {
+    return _bootCloud();
+}
+
+// ─── Backup helpers ───────────────────────────────────────────────────────────
+// Even with Supabase, a manual export gives you a file you control no matter
+// what happens to the service. Open the dev console and call:
+//   exportData()        -> downloads vitals-backup-YYYY-MM-DD.json
+//   importData(json)    -> replaces all data with the contents of a backup
+//   importFromJsonBin() -> one-time pull from the OLD JSONBin (uses the old creds)
+window.exportData = function () {
+    const blob = new Blob([JSON.stringify(_cache, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'vitals-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+};
+window.importData = function (json) {
+    const obj = (typeof json === 'string') ? JSON.parse(json) : json;
+    if (!obj || typeof obj !== 'object') throw new Error('Invalid backup');
+    _cache = obj;
+    _dirty = true;
+    _flushToCloud(true);
+    if (typeof loadDayData === 'function') loadDayData();
+};
+window.importFromJsonBin = async function () {
+    const url = 'https://api.jsonbin.io/v3/b/69f53af2856a6821899747a5/latest';
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-Master-Key': '$2a$10$3y.dwt/3tzWk3GSu3tXtDeFKHKk25l68iLnGPUjauJA8zdcHfmMji'
+    };
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error('JSONBin fetch failed: ' + res.status);
+    const data = await res.json();
+    window.importData(data.record || {});
+    console.log('Imported from JSONBin. Cloud save will fire within 10s.');
+};
 // ─────────────────────────────────────────────────────────────────────────────
 const svg = document.getElementById('radarChart');
 const statsDisplay = document.getElementById('stats-display');
@@ -146,44 +300,78 @@ function getMixerConfig(mode) {
     };
 }
 
+// ─── GLOBAL SLIDER LEVELS ─────────────────────────────────────────────────
+// Sin and virtue slider values are global (same across every day).
+// Stored as a flat { activity: value } map at SIN_LEVELS_KEY / VIRTUE_LEVELS_KEY.
+// The associated NOTES (entriesKey) remain per-day — only the slider numbers
+// are shared.
+//
+// Notes on storage shape detection:
+//   New (global)   : { "Pride": 5, "Greed": 3, ... }
+//   Old (per-day)  : { "2026-05-08": { "Pride": 5 }, "2026-05-09": {...} }
+// We can tell them apart because date keys match YYYY-MM-DD.
+const _DATE_KEY_RX = /^\d{4}-\d{2}-\d{2}$/;
+function _looksLikePerDay(obj) {
+    if (!obj || typeof obj !== 'object') return false;
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return false;
+    return keys.some(k => _DATE_KEY_RX.test(k));
+}
+
+// One-time migration: collapse per-day levels down to today's values only.
+// Idempotent — safe to call multiple times.
+const LEVELS_MIGRATED_FLAG = 'levels_global_migrated_v1';
+function migrateLevelsToGlobal() {
+    if (Storage.getItem(LEVELS_MIGRATED_FLAG) === '1') return;
+    [SIN_LEVELS_KEY, VIRTUE_LEVELS_KEY].forEach(key => {
+        let parsed;
+        try { parsed = JSON.parse(Storage.getItem(key) || 'null'); }
+        catch (e) { parsed = null; }
+        if (!_looksLikePerDay(parsed)) return; // already flat or empty
+        const todayValues = parsed[getDateKey(new Date())] || {};
+        Storage.setItem(key, JSON.stringify(todayValues));
+    });
+    Storage.setItem(LEVELS_MIGRATED_FLAG, '1');
+}
+
 function getAllSinLevels() {
-    try { return JSON.parse(Storage.getItem(SIN_LEVELS_KEY)) || {}; }
-    catch(e) { return {}; }
+    // Back-compat shim: returns the flat global map. Kept so any leftover
+    // caller doesn't crash. New code should use getLevelsForDay(SIN_LEVELS_KEY).
+    try {
+        const parsed = JSON.parse(Storage.getItem(SIN_LEVELS_KEY)) || {};
+        // Defensive: if pre-migration data is read, return today's slice.
+        if (_looksLikePerDay(parsed)) return parsed[getDateKey(viewDate)] || {};
+        return parsed;
+    } catch(e) { return {}; }
 }
 function getSinLevelsForDay() {
-    return getAllSinLevels()[getDateKey(viewDate)] || {};
+    return getAllSinLevels(); // global = same every day
 }
 function setSinLevel(activity, value) {
-    const all = getAllSinLevels();
-    const dayKey = getDateKey(viewDate);
-    if (!all[dayKey]) all[dayKey] = {};
-    if (value === 0) {
-        delete all[dayKey][activity];
-        if (Object.keys(all[dayKey]).length === 0) delete all[dayKey];
-    } else {
-        all[dayKey][activity] = value;
-    }
-    Storage.setItem(SIN_LEVELS_KEY, JSON.stringify(all));
+    setLevel(SIN_LEVELS_KEY, activity, value);
 }
 
 // Generic versions used by the mixer renderer — work with any storage key.
-// Keep the sin-specific ones above so existing callers (if any) still work.
+// Levels are now GLOBAL: every day reads and writes the same flat map.
 function getAllLevels(key) {
-    try { return JSON.parse(Storage.getItem(key)) || {}; }
-    catch(e) { return {}; }
+    try {
+        const parsed = JSON.parse(Storage.getItem(key)) || {};
+        // If we encounter pre-migration per-day data (e.g. cloud save raced
+        // ahead of migration), fall back to today's slice rather than the
+        // outer object so callers get sensible numbers.
+        if (_looksLikePerDay(parsed)) return parsed[getDateKey(viewDate)] || {};
+        return parsed;
+    } catch(e) { return {}; }
 }
 function getLevelsForDay(key) {
-    return getAllLevels(key)[getDateKey(viewDate)] || {};
+    return getAllLevels(key); // global = same every day
 }
 function setLevel(key, activity, value) {
     const all = getAllLevels(key);
-    const dayKey = getDateKey(viewDate);
-    if (!all[dayKey]) all[dayKey] = {};
     if (value === 0) {
-        delete all[dayKey][activity];
-        if (Object.keys(all[dayKey]).length === 0) delete all[dayKey];
+        delete all[activity];
     } else {
-        all[dayKey][activity] = value;
+        all[activity] = value;
     }
     Storage.setItem(key, JSON.stringify(all));
 }
@@ -220,7 +408,7 @@ function isCategoryCompleted(catName) {
         return [...(day.happy || []), ...(day.grateful || []), ...(day.learned || []), ...(day.better || [])].some(v => v && v.trim());
     }
     if (catName === 'Mindset') {
-        return ['book', 'video', 'podcast', 'conversation'].some(t => getMindsetLibraryForType(t).length > 0);
+        return ['book', 'video', 'podcast', 'conversation'].some(t => mindsetTypeHasDataToday(t));
     }
     if (catName === 'Mobility') {
         const datePrefix = getDateKey(viewDate) + '__';
@@ -658,7 +846,11 @@ document.getElementById('nextDay').addEventListener('click', () => {
 
 
 loadDayData();                              // render immediately with defaults
-_loadFromJsonBin().then(() => { pruneOrphanedChecks(); loadDayData(); }); // re-render once remote data arrives
+_loadFromJsonBin().then(() => {
+    migrateLevelsToGlobal();
+    pruneOrphanedChecks();
+    loadDayData();
+}); // re-render once remote data arrives
 
 
 function drawWedges() {
@@ -2737,12 +2929,16 @@ initMfClock();
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MINDSET_NOTES_KEY = 'mindset_notes';
+const MINDSET_CHECKS_KEY = 'mindset_checks';
 const MINDSET_TYPE_LABELS = { book: 'BOOKS', video: 'VIDEOS', podcast: 'PODCASTS', conversation: 'CONVERSATIONS' };
 const MINDSET_TYPE_PLACEHOLDERS = { book: 'Add book...', video: 'Add video...', podcast: 'Add podcast...', conversation: 'Add conversation...' };
 let activeMindsetType = null;
 let activeBook = null;
 
 function getMindsetLibraryForType(type) {
+    // String literal here (not a const) so the function is safe to call
+    // before this section of the file has executed — important because
+    // isCategoryCompleted('Mindset') runs during initial loadDayData().
     const raw = Storage.getItem('mindset_library__' + type);
     return raw ? JSON.parse(raw) : [];
 }
@@ -2750,18 +2946,47 @@ function saveMindsetLibraryForType(type, lib) {
     Storage.setItem('mindset_library__' + type, JSON.stringify(lib));
 }
 function getMindsetNotes() {
-    const raw = Storage.getItem(MINDSET_NOTES_KEY);
+    const raw = Storage.getItem('mindset_notes');
     return raw ? JSON.parse(raw) : {};
 }
 function saveMindsetNotes(notes) {
-    Storage.setItem(MINDSET_NOTES_KEY, JSON.stringify(notes));
+    Storage.setItem('mindset_notes', JSON.stringify(notes));
+}
+
+// Per-day check marks. Same key shape as notes (date__type__item) so the
+// existing rename function can migrate them with a small addition.
+function getMindsetChecks() {
+    const raw = Storage.getItem('mindset_checks');
+    return raw ? JSON.parse(raw) : {};
+}
+function saveMindsetChecks(checks) {
+    Storage.setItem('mindset_checks', JSON.stringify(checks));
+}
+function isMindsetItemChecked(type, item) {
+    return !!getMindsetChecks()[getMindsetNoteKey(type, item)];
+}
+function setMindsetItemChecked(type, item, checked) {
+    const checks = getMindsetChecks();
+    const key = getMindsetNoteKey(type, item);
+    if (checked) checks[key] = true;
+    else delete checks[key];
+    saveMindsetChecks(checks);
 }
 function getMindsetNoteKey(type, item) {
     return getDateKey(viewDate) + '__' + type + '__' + item;
 }
 
+// Whether a given mindset type has activity (check OR note) for the current
+// viewDate. Library presence alone does NOT count anymore — items now persist
+// across days, so the green label needs an explicit signal that the user
+// engaged with something today.
 function mindsetTypeHasDataToday(type) {
-    return getMindsetLibraryForType(type).length > 0;
+    const dayPrefix = getDateKey(viewDate) + '__' + type + '__';
+    const notes = getMindsetNotes();
+    if (Object.keys(notes).some(k => k.startsWith(dayPrefix) && notes[k])) return true;
+    const checks = getMindsetChecks();
+    if (Object.keys(checks).some(k => k.startsWith(dayPrefix) && checks[k])) return true;
+    return false;
 }
 
 function renderMindsetTypeButtons() {
@@ -2805,6 +3030,20 @@ function renderBookList() {
         const row = document.createElement('div');
         row.className = 'sp-entry-row';
 
+        // Per-day checkbox. Tapping it toggles the check AND opens the notes
+        // panel (same behavior as tapping the row itself), so the user can
+        // mark something done and jot a note in one motion.
+        const check = document.createElement('button');
+        check.type = 'button';
+        check.className = 'mindset-check';
+        check.setAttribute('aria-label', 'Mark complete');
+        const syncCheck = () => {
+            const isChecked = isMindsetItemChecked(activeMindsetType, item);
+            check.classList.toggle('checked', isChecked);
+            check.textContent = isChecked ? '✓' : '';
+        };
+        syncCheck();
+
         const title = document.createElement('span');
         title.className = 'sp-entry-topic';
         title.textContent = item;
@@ -2822,10 +3061,13 @@ function renderBookList() {
             } else {
                 const lib = getMindsetLibraryForType(activeMindsetType).filter(b => b !== item);
                 saveMindsetLibraryForType(activeMindsetType, lib);
-                const allNotes = getMindsetNotes();
                 const keyFragment = '__' + activeMindsetType + '__' + item;
+                const allNotes = getMindsetNotes();
                 Object.keys(allNotes).forEach(k => { if (k.endsWith(keyFragment)) delete allNotes[k]; });
                 saveMindsetNotes(allNotes);
+                const allChecks = getMindsetChecks();
+                Object.keys(allChecks).forEach(k => { if (k.endsWith(keyFragment)) delete allChecks[k]; });
+                saveMindsetChecks(allChecks);
                 const list = document.getElementById('ms-book-list');
                 closeOpenPanel(list, () => {
                     renderBookList();
@@ -2834,6 +3076,7 @@ function renderBookList() {
             }
         };
 
+        row.appendChild(check);
         row.appendChild(title);
         row.appendChild(del);
 
@@ -2878,6 +3121,7 @@ function renderBookList() {
         row.addEventListener('contextmenu', e => e.preventDefault());
         row.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.exercise-delete-btn')) return;
+            if (e.target.closest('.mindset-check')) return;
             if (panel.classList.contains('open')) return;
             renameTriggered = false;
             pressTimer = setTimeout(() => {
@@ -2910,8 +3154,35 @@ function renderBookList() {
         row.addEventListener('pointerup', () => clearTimeout(pressTimer));
         row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
 
+        // Open the inline notes panel (if not already open). Reused by both
+        // the row click and the checkbox click.
+        const openNotesPanel = () => {
+            if (panel.classList.contains('open')) {
+                setTimeout(() => ta.focus(), 50);
+                return;
+            }
+            list.querySelectorAll('.entry-wrapper').forEach(w => {
+                if (w !== wrapper) collapseEntryWrapper(w);
+            });
+            panel.classList.add('open');
+            row.classList.add('open');
+            setTimeout(() => ta.focus(), 400);
+        };
+
+        // Checkbox: toggle per-day check and open the notes panel.
+        // stopPropagation prevents the row's own click handler from firing.
+        check.onclick = (e) => {
+            e.stopPropagation();
+            const newState = !isMindsetItemChecked(activeMindsetType, item);
+            setMindsetItemChecked(activeMindsetType, item, newState);
+            syncCheck();
+            refreshChartAfterDataChange();
+            openNotesPanel();
+        };
+
         row.onclick = (e) => {
             if (e.target.closest('.exercise-delete-btn')) return;
+            if (e.target.closest('.mindset-check')) return;
             if (renameTriggered) { renameTriggered = false; return; }
             const isOpen = panel.classList.contains('open');
             if (isOpen) {
@@ -2921,12 +3192,7 @@ function renderBookList() {
                 list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
                 return;
             }
-            list.querySelectorAll('.entry-wrapper').forEach(w => {
-                if (w !== wrapper) collapseEntryWrapper(w);
-            });
-            panel.classList.add('open');
-            row.classList.add('open');
-            setTimeout(() => ta.focus(), 400);
+            openNotesPanel();
         };
 
         inner.appendChild(row);
@@ -2958,7 +3224,7 @@ function openBookNotes(item) {
 }
 
 // Rename a mindset library item (book/video/podcast/conversation) and migrate
-// any existing notes to the new key, in the active type's library.
+// any existing notes AND checks to the new key, in the active type's library.
 function renameMindsetItem(type, oldName, newName) {
     if (oldName === newName) return;
     // 1) library
@@ -2968,10 +3234,10 @@ function renameMindsetItem(type, oldName, newName) {
         lib[idx] = newName;
         saveMindsetLibraryForType(type, lib);
     }
-    // 2) notes (migrate every date that had a note for this item)
-    const notes = getMindsetNotes();
     const oldSuffix = '__' + type + '__' + oldName;
     const newSuffix = '__' + type + '__' + newName;
+    // 2) notes (migrate every date that had a note for this item)
+    const notes = getMindsetNotes();
     Object.keys(notes).forEach(k => {
         if (k.endsWith(oldSuffix)) {
             const datePart = k.slice(0, k.length - oldSuffix.length);
@@ -2980,6 +3246,16 @@ function renameMindsetItem(type, oldName, newName) {
         }
     });
     saveMindsetNotes(notes);
+    // 3) checks (same migration shape)
+    const checks = getMindsetChecks();
+    Object.keys(checks).forEach(k => {
+        if (k.endsWith(oldSuffix)) {
+            const datePart = k.slice(0, k.length - oldSuffix.length);
+            checks[datePart + newSuffix] = checks[k];
+            delete checks[k];
+        }
+    });
+    saveMindsetChecks(checks);
 }
 
 document.getElementById('addBookBtn').onclick = () => {

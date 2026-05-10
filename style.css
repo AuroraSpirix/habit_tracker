@@ -1626,3 +1626,39 @@ p {
     border: none;
     box-shadow: 0 0 6px rgba(201,169,110,0.5);
 }
+
+/* ─── Mindset per-day check ─────────────────────────────────────────
+   Sits on the left of each item row; toggles the per-day "did this
+   today" mark and opens the notes panel on tap. */
+.mindset-check {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    margin-right: 0.6rem;
+    border: 1px solid var(--text-faint);
+    border-radius: 4px;
+    background: transparent;
+    color: transparent;
+    font-size: 0.8rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.mindset-check.checked {
+    border-color: var(--green);
+    background: var(--green-dim);
+    color: var(--green);
+    box-shadow: 0 0 6px rgba(61,220,132,0.35);
+}
+.mindset-check:active { transform: scale(0.94); }
+
+/* In the mindset list, the title is muted by default and only turns green
+   when the row's checkbox is checked. Scoped to #ms-book-list so the same
+   .sp-entry-row styling stays untouched in other modals (spirituality, etc). */
+#ms-book-list .sp-entry-row .sp-entry-topic { color: var(--text-faint); }
+#ms-book-list .sp-entry-row:has(.mindset-check.checked) .sp-entry-topic { color: var(--green); }
+#ms-book-list .sp-entry-row:hover .sp-entry-topic { color: var(--text); }
