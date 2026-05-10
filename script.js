@@ -1236,7 +1236,7 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
         // CSS underlines the label via the .has-note class.
         const label = document.createElement('span');
         label.className = hasNote ? 'sin-label has-note' : 'sin-label';
-        label.textContent = (mode === 'virtues' && window.innerWidth <= 480 && activity.length > 5)
+        label.textContent = (window.innerWidth <= 480 && activity.length > 5)
             ? activity.slice(0, 5) + '.'
             : activity;
         label.onclick = () => openAvoidedModal(activity);
@@ -1374,8 +1374,12 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
 
     const panelPrev = document.createElement('div');
     const panelNext = document.createElement('div');
+    // Match the gap/padding of #sins-mixer at the current breakpoint so
+    // adjacent-panel content doesn't overflow and clip edge slots on mobile.
+    const _mixerGap  = window.innerWidth <= 480 ? 8  : 22;
+    const _mixerPad  = window.innerWidth <= 480 ? '0 2px' : '0 4px';
     [panelPrev, panelNext].forEach(p => {
-        p.style.cssText = 'display:flex;justify-content:center;align-items:flex-end;gap:22px;padding:0 4px;flex:0 0 100%;min-width:0;';
+        p.style.cssText = `display:flex;justify-content:center;align-items:flex-end;gap:${_mixerGap}px;padding:${_mixerPad};flex:0 0 100%;min-width:0;`;
     });
 
     const centerPanel = document.createElement('div');
@@ -1390,6 +1394,15 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
     swipeTrack.appendChild(centerPanel);
     swipeTrack.appendChild(panelNext);
     swipeWrap.appendChild(swipeTrack);
+
+    // Pre-render both adjacent panels now so there is no DOM reflow mid-swipe
+    // (lazy rendering was causing a visible jump on mobile).
+    function _preRenderAdjacent() {
+        const other = getMixerMode() === 'sins' ? 'virtues' : 'sins';
+        renderSinsMixer({}, panelPrev, other);
+        renderSinsMixer({}, panelNext, other);
+    }
+    _preRenderAdjacent();
 
     function setPos(dx) {
         swipeTrack.style.transition = 'none';
@@ -1420,10 +1433,6 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
             if (Math.abs(dy) > Math.abs(dx)) { tracking = false; return; }
             dragging = true;
             window.__mixerSwipeActive = true;
-            // Pre-render adjacent panels only when a horizontal swipe is confirmed
-            const otherMode = getMixerMode() === 'sins' ? 'virtues' : 'sins';
-            renderSinsMixer({}, panelPrev, otherMode);
-            renderSinsMixer({}, panelNext, otherMode);
             try { swipeWrap.setPointerCapture(e.pointerId); } catch (_) {}
         }
 
@@ -1444,6 +1453,7 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
                 const newMode = getMixerMode() === 'sins' ? 'virtues' : 'sins';
                 setMixerMode(newMode);
                 renderSinsMixer();
+                _preRenderAdjacent();
                 setPos(0);
                 setTimeout(() => { window.__mixerSwipeActive = false; }, 0);
             });

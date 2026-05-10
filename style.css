@@ -386,7 +386,9 @@ svg {
 
 
 @media (max-width: 480px) {
-    #sins-mixer { gap: 10px; padding: 0 2px; }
+    /* Reduced from 10px → 8px so 7 slots (7×36 + 6×8 + 4px pad = 304px)
+       fit within ~311px on a 375px phone without clipping edge slots. */
+    #sins-mixer { gap: 8px; padding: 0 2px; }
     .sin-slot { width: 36px; gap: 6px; }
     /* Allow wrapping on mobile because virtue names ("Knowledge", "Integrity",
        "Patience"…) overflow the 36px slot. height:auto + line-height:1.1
@@ -401,6 +403,28 @@ svg {
         word-break: break-word;
     }
     .sin-slider-wrap { width: 20px; height: 80px; }
+
+    /* Mindfulness: shrink clock + sliders to fit phone screens */
+    .mf-clock-svg {
+        width: 170px;
+        height: 170px;
+    }
+    .mf-vert-wrap {
+        height: 130px;
+    }
+    .mf-vert-slider {
+        width: 130px;
+    }
+    .mf-main-row {
+        gap: 8px;
+        margin: 10px 0 14px;
+    }
+
+    /* Recovery: tighten slider section padding */
+    .rc-sleep-outer {
+        padding: 6px 6px 0;
+        gap: 5px;
+    }
 }
 
 button {
