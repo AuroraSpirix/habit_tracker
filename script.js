@@ -3435,47 +3435,5 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const av = document.getElementById('avoidedModal');
         if (av && av.style.display === 'flex') { av.style.display = 'none'; activeAvoidedActivity = null; }
-        const gr = document.getElementById('gratitudeModal');
-        if (gr && gr.style.display === 'flex') gr.style.display = 'none';
     }
-});
-
-
-const GRATITUDE_KEY = 'gratitude_entries';
-
-function getGratitudeEntries() {
-    try { return JSON.parse(Storage.getItem(GRATITUDE_KEY)) || {}; }
-    catch(e) { return {}; }
-}
-
-function openGratitudeModal() {
-    const entries = getGratitudeEntries();
-    const saved = entries[getDateKey(viewDate)] || [];
-    for (let i = 1; i <= 5; i++) {
-        document.getElementById('grateful' + i).value = saved[i-1] || '';
-    }
-    document.getElementById('gratitudeModal').style.display = 'flex';
-    setTimeout(() => document.getElementById('grateful1').focus(), 50);
-}
-
-document.getElementById('closeGratitudeModal').addEventListener('click', function() {
-    const entries = getGratitudeEntries();
-    entries[getDateKey(viewDate)] = [1,2,3,4,5].map(i =>
-        document.getElementById('grateful' + i).value.trim()
-    );
-    Storage.setItem(GRATITUDE_KEY, JSON.stringify(entries));
-    document.getElementById('gratitudeModal').style.display = 'none';
-});
-
-
-
-const dayNameEl = document.getElementById('day-name');
-dayNameEl.style.cursor = 'pointer';
-dayNameEl.addEventListener('click', function() {
-    dayNameEl.classList.add('flash');
-    dayNameEl.addEventListener('animationend', function handler() {
-        dayNameEl.classList.remove('flash');
-        dayNameEl.removeEventListener('animationend', handler);
-    });
-    openGratitudeModal();
 });
