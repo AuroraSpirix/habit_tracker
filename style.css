@@ -549,7 +549,7 @@ button:hover {
 
 .day-box.current {
     border-color: var(--gold);
-    color: var(--gold);
+    color: var(--text);
     font-weight: 500;
     box-shadow: 0 0 12px var(--gold-glow);
 }
@@ -846,7 +846,7 @@ button:hover {
     font-size: 0.8rem;
     letter-spacing: 0.1em;
     color: var(--text-muted);
-    text-transform: uppercase;
+    text-transform: none;
     flex: 1;
     text-align: left;
     transition: color var(--transition);

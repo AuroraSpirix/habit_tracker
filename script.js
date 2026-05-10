@@ -977,6 +977,10 @@ function renderCalendar() {
     const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
     const prevMonthLastDay = new Date(year, month, 0).getDate();
 
+    const savedData = Storage.getItem(STORAGE_KEY);
+    const allData = savedData ? JSON.parse(savedData) : {};
+    const realToday = new Date();
+    const todayStr = `${realToday.getFullYear()}-${String(realToday.getMonth()+1).padStart(2,'0')}-${String(realToday.getDate()).padStart(2,'0')}`;
 
     for (let i = 0; i < 42; i++) {
         const div = document.createElement('div');
@@ -999,7 +1003,15 @@ function renderCalendar() {
             dayNumber = i - firstDayIndex + 1;
             div.textContent = dayNumber;
 
-            const realToday = new Date();
+            const dayStr = `${year}-${String(month+1).padStart(2,'0')}-${String(dayNumber).padStart(2,'0')}`;
+            const dayEntry = allData[dayStr];
+            if (dayStr < todayStr && dayEntry) {
+                const vitals = Array.isArray(dayEntry) ? dayEntry : (dayEntry.vitals || []);
+                const score = vitals.reduce((sum, v) => sum + (v.value || 0), 0);
+                const alpha = 0.08 + (score / 60) * 0.92;
+                div.style.backgroundColor = `rgba(74, 222, 128, ${alpha.toFixed(2)})`;
+            }
+
             if (dayNumber === realToday.getDate() &&
                 month === realToday.getMonth() &&
                 year === realToday.getFullYear()) {
@@ -3727,3 +3739,61 @@ window.addEventListener('keydown', (e) => {
         if (av && av.style.display === 'flex') { av.style.display = 'none'; activeAvoidedActivity = null; }
     }
 });
+
+
+// ─── Reset current day by typing "reset" ─────────────────────────────────────
+
+function resetCurrentDay() {
+    const dateKey = getDateKey(viewDate);
+    const prefix = dateKey + '__';
+
+    function clearDayKey(storageKey) {
+        const raw = Storage.getItem(storageKey);
+        if (!raw) return;
+        const all = JSON.parse(raw);
+        delete all[dateKey];
+        Storage.setItem(storageKey, JSON.stringify(all));
+    }
+
+    function clearPrefixKeys(storageKey) {
+        const raw = Storage.getItem(storageKey);
+        if (!raw) return;
+        const all = JSON.parse(raw);
+        Object.keys(all).forEach(k => { if (k.startsWith(prefix)) delete all[k]; });
+        Storage.setItem(storageKey, JSON.stringify(all));
+    }
+
+    clearDayKey(STORAGE_KEY);
+    clearDayKey(SPIRITUAL_KEY);
+    clearDayKey(RECOVERY_KEY);
+    clearDayKey('reflection_321');
+    clearDayKey('mindfulness_minutes');
+    clearDayKey('mindfulness_breathing');
+    clearDayKey('mindfulness_focus');
+
+    clearPrefixKeys(EXERCISE_LOGS_KEY);
+    clearPrefixKeys(EXERCISE_CHECKS_KEY);
+    clearPrefixKeys('mobility_other_checks');
+    clearPrefixKeys('mobility_other_notes');
+    clearPrefixKeys(MOBILITY_SIMPLE_KEY);
+    clearPrefixKeys(MINDSET_NOTES_KEY);
+    clearPrefixKeys(MINDSET_CHECKS_KEY);
+    clearPrefixKeys(AVOIDED_ENTRIES_KEY);
+    clearPrefixKeys(VIRTUE_ENTRIES_KEY);
+
+    loadDayData();
+    renderCalendar();
+}
+
+(function () {
+    let buf = '';
+    document.addEventListener('keydown', (e) => {
+        const tag = document.activeElement && document.activeElement.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        buf = (buf + e.key).slice(-5);
+        if (buf === 'reset') {
+            buf = '';
+            resetCurrentDay();
+        }
+    });
+})();
