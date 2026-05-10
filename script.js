@@ -1472,7 +1472,7 @@ const EXERCISE_LOGS_KEY = 'exercise_logs';
 const EXERCISE_CHECKS_KEY = 'exercise_set_checks';
 const EXERCISE_NOTES_KEY = 'exercise_notes';
 
-const muscleGroups = ['Triceps', 'Biceps', 'Shoulders', 'Chest', 'Back', 'Abs'];
+const muscleGroups = ['Triceps', 'Biceps', 'Shoulders', 'Chest', 'Back', 'Abs', 'Legs'];
 let activeMuscle = null;
 let activeExercise = null;
 
@@ -1587,7 +1587,7 @@ function showExScreen(id) {
     });
 }
 
-const MOBILITY_EXTRAS = ['Yoga', 'Posture'];
+const MOBILITY_EXTRAS = ['Stretching'];
 const MOBILITY_SIMPLE_KEY = 'mobility_simple_notes';
 
 function getMobilitySimpleNotes() {
@@ -1629,20 +1629,16 @@ function renderMuscleGrid() {
     });
 
 
-    const extras = document.getElementById('mobility-extras');
-    extras.innerHTML = '';
     const simpleNotes = getMobilitySimpleNotes();
     MOBILITY_EXTRAS.forEach(type => {
         const btn = document.createElement('button');
         btn.className = 'muscle-btn';
         const noteKey = getMobilitySimpleKey(type);
-        // Yoga/Posture are now boolean toggles instead of note-opening buttons.
-        // Any truthy value (including legacy free-text notes) counts as "done".
         const isDone = !!(simpleNotes[noteKey] && String(simpleNotes[noteKey]).trim());
         if (isDone) btn.classList.add('has-data');
         btn.textContent = type.toUpperCase();
         btn.onclick = () => toggleMobilityExtra(type);
-        extras.appendChild(btn);
+        grid.appendChild(btn);
     });
 }
 
@@ -2128,6 +2124,17 @@ function renderSets() {
             saveExerciseChecks(allChecks);
             label.classList.toggle('checked', current[i]);
             refreshChartAfterDataChange();
+            // Immediately reflect green/not-green on the exercise row in the list
+            const anyChecked = current.some(Boolean);
+            const list = document.getElementById('exercise-list');
+            if (list) {
+                list.querySelectorAll('.exercise-row').forEach(r => {
+                    const nameEl = r.querySelector('.exercise-row-name');
+                    if (nameEl && nameEl.textContent === activeExercise) {
+                        r.classList.toggle('has-data', anyChecked);
+                    }
+                });
+            }
         };
 
         const group = document.createElement('div');
@@ -3009,14 +3016,31 @@ let activeMindsetType = null;
 let activeBook = null;
 
 function getMindsetLibraryForType(type) {
-    // String literal here (not a const) so the function is safe to call
-    // before this section of the file has executed — important because
-    // isCategoryCompleted('Mindset') runs during initial loadDayData().
+    // Per-day key for the date currently being viewed.
+    const dateKey  = getDateKey(viewDate);
+    const perDayKey = 'mindset_library__' + type + '__' + dateKey;
+    const perDayRaw = Storage.getItem(perDayKey);
+    if (perDayRaw) return JSON.parse(perDayRaw);
+
+    // Future day with no own library: inherit from today's per-day library so
+    // whatever is current today shows up on future days automatically.
+    const todayKey = getDateKey(new Date());
+    if (dateKey > todayKey) {
+        const todayPerDay = Storage.getItem('mindset_library__' + type + '__' + todayKey);
+        if (todayPerDay) return JSON.parse(todayPerDay);
+    }
+
+    // Past day or no per-day data: fall back to the legacy global key.
+    // This key is intentionally never written to again, so past days always
+    // see the library as it was before per-day tracking was introduced.
     const raw = Storage.getItem('mindset_library__' + type);
     return raw ? JSON.parse(raw) : [];
 }
 function saveMindsetLibraryForType(type, lib) {
-    Storage.setItem('mindset_library__' + type, JSON.stringify(lib));
+    // Write only to the current day's per-day key.
+    // The legacy global key is left untouched so past days keep their snapshot.
+    const dateKey = getDateKey(viewDate);
+    Storage.setItem('mindset_library__' + type + '__' + dateKey, JSON.stringify(lib));
 }
 function getMindsetNotes() {
     const raw = Storage.getItem('mindset_notes');

@@ -1109,7 +1109,7 @@ button:hover {
     transition: color var(--transition);
     display: block;
     text-align: center;
-    padding: 4px 6px;
+    padding: 2px 6px;
 }
 
 .ex-close-btn:hover { color: var(--text); background: none; }
@@ -1127,7 +1127,7 @@ button:hover {
     line-height: 1.7;
     resize: none;
     outline: none;
-    margin-bottom: 5px;
+    margin-bottom: 1px;
     transition: all var(--transition);
     letter-spacing: 0.02em;
 }
