@@ -1236,7 +1236,7 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
         // CSS underlines the label via the .has-note class.
         const label = document.createElement('span');
         label.className = hasNote ? 'sin-label has-note' : 'sin-label';
-        label.textContent = (window.innerWidth <= 480 && activity.length > 5)
+        label.textContent = (mode === 'virtues' && window.innerWidth <= 480 && activity.length > 5)
             ? activity.slice(0, 5) + '.'
             : activity;
         label.onclick = () => openAvoidedModal(activity);
@@ -1687,6 +1687,7 @@ function saveSimpleNotes() {
 
 document.getElementById('closeExerciseModal4').onclick = () => {
     saveSimpleNotes();
+    renderMuscleGrid();
     showExScreen('ex-screen-muscles');
 };
 
@@ -2306,6 +2307,7 @@ document.getElementById('closeExerciseModal5').onclick = () => {
 };
 
 document.getElementById('closeExerciseModal2').onclick = () => {
+    renderMuscleGrid();
     showExScreen('ex-screen-muscles');
 };
 document.getElementById('closeExerciseModal3').onclick = () => {
@@ -2613,6 +2615,12 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
 // ─── Recovery Modal ───────────────────────────────────────────────────────────
 const RECOVERY_KEY = 'recovery_data';
 
+function formatSleepVal(val) {
+    const h = Math.floor(val);
+    const m = Math.round((val - h) * 60);
+    return m === 0 ? `${h} HRS` : `${h}:${String(m).padStart(2, '0')} HRS`;
+}
+
 function getRecoveryData() {
     const raw = Storage.getItem(RECOVERY_KEY);
     const all = raw ? JSON.parse(raw) : {};
@@ -2638,7 +2646,7 @@ function openRecoveryModal() {
     document.getElementById('rc-nutrition-range').value = nutrition;
     document.getElementById('rc-nutrition-value').textContent = nutrition + ' CAL';
     document.getElementById('rc-sleep-range').value = sleep;
-    document.getElementById('rc-sleep-value').textContent = sleep + ' HRS';
+    document.getElementById('rc-sleep-value').textContent = formatSleepVal(sleep);
     document.getElementById('recoveryModal').style.display = 'flex';
 }
 
@@ -2670,8 +2678,8 @@ document.getElementById('rc-nutrition-range').addEventListener('input', () => {
 });
 
 document.getElementById('rc-sleep-range').addEventListener('input', () => {
-    const val = parseInt(document.getElementById('rc-sleep-range').value);
-    document.getElementById('rc-sleep-value').textContent = val + ' HRS';
+    const val = parseFloat(document.getElementById('rc-sleep-range').value);
+    document.getElementById('rc-sleep-value').textContent = formatSleepVal(val);
     const data = getRecoveryData();
     data.sleep = val;
     saveRecoveryData(data);

@@ -394,8 +394,8 @@ svg {
        "Patience"…) overflow the 36px slot. height:auto + line-height:1.1
        keeps the row aligned even when one label wraps to two lines. */
     .sin-label {
-        font-size: 0.42rem;
-        letter-spacing: 0.06em;
+        font-size: 0.36rem;
+        letter-spacing: 0.05em;
         white-space: normal;
         line-height: 1.15;
         height: auto;
@@ -403,30 +403,6 @@ svg {
         word-break: break-word;
     }
     .sin-slider-wrap { width: 20px; height: 80px; }
-
-    /* Mindfulness: shrink clock + sliders to fit phone screens */
-    .mf-clock-svg {
-        width: 110px;
-        height: 110px;
-    }
-    .mf-vert-wrap {
-        height: 120px;
-    }
-    .mf-vert-slider {
-        width: 120px;
-    }
-    .mf-main-row {
-        gap: 8px;
-        margin: 10px 0 14px;
-    }
-
-    /* Recovery: each slider spans both columns so the range input has room.
-       Without this each slider is crammed into ~141px which overflows. */
-    .rc-sleep-outer {
-        grid-column: span 2;
-        padding: 6px 6px 0;
-        gap: 5px;
-    }
 }
 
 button {
@@ -1133,7 +1109,7 @@ button:hover {
     transition: color var(--transition);
     display: block;
     text-align: center;
-    padding: 6px;
+    padding: 4px 6px;
 }
 
 .ex-close-btn:hover { color: var(--text); background: none; }
@@ -1151,7 +1127,7 @@ button:hover {
     line-height: 1.7;
     resize: none;
     outline: none;
-    margin-bottom: 12px;
+    margin-bottom: 5px;
     transition: all var(--transition);
     letter-spacing: 0.02em;
 }
@@ -1460,6 +1436,15 @@ p {
     text-transform: uppercase;
 }
 
+@media (max-width: 480px) {
+    /* Each slider spans both columns so the range input has enough room. */
+    .rc-sleep-outer {
+        grid-column: span 2;
+        padding: 6px 6px 0;
+        gap: 5px;
+    }
+}
+
 /* ─── Reflection 3-2-1 ─────────────────────────────────────────────────────── */
 .rf-sections {
     display: flex;
@@ -1652,6 +1637,15 @@ p {
     cursor: pointer;
     border: none;
     box-shadow: 0 0 6px rgba(201,169,110,0.5);
+}
+
+@media (max-width: 480px) {
+    /* 70% of the 260px desktop size */
+    .mf-clock-svg  { width: 182px; height: 182px; }
+    /* Sliders scale proportionally (180px → 126px) */
+    .mf-vert-wrap  { height: 126px; }
+    .mf-vert-slider { width: 126px; }
+    .mf-main-row   { gap: 8px; margin: 10px 0 14px; }
 }
 
 /* ─── Mindset per-day check ─────────────────────────────────────────
