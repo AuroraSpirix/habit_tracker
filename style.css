@@ -1683,3 +1683,6 @@ p {
 #ms-book-list .sp-entry-row .sp-entry-topic { color: var(--text-faint); }
 #ms-book-list .sp-entry-row:has(.mindset-check.checked) .sp-entry-topic { color: var(--green); }
 #ms-book-list .sp-entry-row:hover .sp-entry-topic { color: var(--text); }
+#mobility-other-list .sp-entry-row .sp-entry-topic { color: var(--text-faint); }
+#mobility-other-list .sp-entry-row:has(.mindset-check.checked) .sp-entry-topic { color: var(--green); }
+#mobility-other-list .sp-entry-row:hover .sp-entry-topic { color: var(--text); }

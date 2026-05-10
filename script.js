@@ -468,9 +468,8 @@ function isCategoryCompleted(catName) {
     if (catName === 'Mobility') {
         const datePrefix = getDateKey(viewDate) + '__';
         const checks = JSON.parse(Storage.getItem('exercise_set_checks') || '{}');
-        return Object.keys(checks).some(k =>
-            k.startsWith(datePrefix) && (checks[k] || []).some(Boolean)
-        );
+        if (Object.keys(checks).some(k => k.startsWith(datePrefix) && (checks[k] || []).some(Boolean))) return true;
+        return mobilityOtherHasDataToday();
     }
     return false;
 }
@@ -1582,13 +1581,246 @@ function getExerciseNoteKey(muscle, exercise) {
 
 
 function showExScreen(id) {
-    ['ex-screen-muscles','ex-screen-exercises','ex-screen-sets','ex-screen-simple','ex-screen-ex-notes'].forEach(s => {
+    ['ex-screen-muscles','ex-screen-exercises','ex-screen-sets','ex-screen-simple','ex-screen-ex-notes','ex-screen-mobility-other'].forEach(s => {
         document.getElementById(s).style.display = s === id ? 'block' : 'none';
     });
 }
 
-const MOBILITY_EXTRAS = ['Stretching'];
+const MOBILITY_EXTRAS = [];   // no more simple-toggle extras
 const MOBILITY_SIMPLE_KEY = 'mobility_simple_notes';
+
+// ─── Mobility "Other" list ────────────────────────────────────────────────────
+// String literals used directly (not consts) so these functions are safe to
+// call from isCategoryCompleted() before the rest of this section executes.
+function getMobilityOtherLibrary() {
+    const raw = Storage.getItem('mobility_other_library');
+    return raw ? JSON.parse(raw) : [];
+}
+function saveMobilityOtherLibrary(lib) {
+    Storage.setItem('mobility_other_library', JSON.stringify(lib));
+}
+function getMobilityOtherChecks() {
+    const raw = Storage.getItem('mobility_other_checks');
+    return raw ? JSON.parse(raw) : {};
+}
+function saveMobilityOtherChecks(checks) {
+    Storage.setItem('mobility_other_checks', JSON.stringify(checks));
+}
+function getMobilityOtherNotes() {
+    const raw = Storage.getItem('mobility_other_notes');
+    return raw ? JSON.parse(raw) : {};
+}
+function saveMobilityOtherNotes(notes) {
+    Storage.setItem('mobility_other_notes', JSON.stringify(notes));
+}
+function getMobilityOtherNoteKey(item) {
+    return getDateKey(viewDate) + '__' + item;
+}
+function isMobilityOtherChecked(item) {
+    return !!getMobilityOtherChecks()[getMobilityOtherNoteKey(item)];
+}
+function setMobilityOtherChecked(item, val) {
+    const checks = getMobilityOtherChecks();
+    const key = getMobilityOtherNoteKey(item);
+    if (val) checks[key] = true; else delete checks[key];
+    saveMobilityOtherChecks(checks);
+}
+function mobilityOtherHasDataToday() {
+    const prefix = getDateKey(viewDate) + '__';
+    const notes  = getMobilityOtherNotes();
+    if (Object.keys(notes).some(k => k.startsWith(prefix) && notes[k])) return true;
+    const checks = getMobilityOtherChecks();
+    return Object.keys(checks).some(k => k.startsWith(prefix) && checks[k]);
+}
+function renameMobilityOtherItem(oldName, newName) {
+    if (oldName === newName) return;
+    const lib = getMobilityOtherLibrary();
+    const idx = lib.indexOf(oldName);
+    if (idx >= 0) { lib[idx] = newName; saveMobilityOtherLibrary(lib); }
+    const oldSuffix = '__' + oldName;
+    const newSuffix = '__' + newName;
+    const notes = getMobilityOtherNotes();
+    Object.keys(notes).forEach(k => {
+        if (k.endsWith(oldSuffix)) { notes[k.slice(0, -oldSuffix.length) + newSuffix] = notes[k]; delete notes[k]; }
+    });
+    saveMobilityOtherNotes(notes);
+    const checks = getMobilityOtherChecks();
+    Object.keys(checks).forEach(k => {
+        if (k.endsWith(oldSuffix)) { checks[k.slice(0, -oldSuffix.length) + newSuffix] = checks[k]; delete checks[k]; }
+    });
+    saveMobilityOtherChecks(checks);
+}
+
+function renderMobilityOtherList() {
+    const list = document.getElementById('mobility-other-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const items = getMobilityOtherLibrary();
+
+    if (items.length === 0) {
+        list.innerHTML = '<p class="empty-state">Nothing yet. Add one below.</p>';
+        return;
+    }
+
+    items.forEach(item => {
+        const noteKey = getMobilityOtherNoteKey(item);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'entry-wrapper';
+        const inner = document.createElement('div');
+        inner.className = 'entry-inner';
+
+        const row = document.createElement('div');
+        row.className = 'sp-entry-row';
+
+        const check = document.createElement('button');
+        check.type = 'button';
+        check.className = 'mindset-check';
+        check.setAttribute('aria-label', 'Mark complete');
+        const syncCheck = () => {
+            const on = isMobilityOtherChecked(item);
+            check.classList.toggle('checked', on);
+            check.textContent = on ? '✓' : '';
+        };
+        syncCheck();
+
+        const title = document.createElement('span');
+        title.className = 'sp-entry-topic';
+        title.textContent = item;
+
+        const del = document.createElement('button');
+        del.className = 'exercise-delete-btn';
+        del.textContent = '×';
+        del.onclick = (e) => {
+            e.stopPropagation();
+            if (!del.dataset.confirming) {
+                del.dataset.confirming = '1';
+                del.textContent = '?';
+                del.classList.add('confirming');
+                setTimeout(() => { del.textContent = '×'; del.classList.remove('confirming'); delete del.dataset.confirming; }, 2500);
+            } else {
+                const lib = getMobilityOtherLibrary().filter(b => b !== item);
+                saveMobilityOtherLibrary(lib);
+                const keyFrag = '__' + item;
+                const allNotes = getMobilityOtherNotes();
+                Object.keys(allNotes).forEach(k => { if (k.endsWith(keyFrag)) delete allNotes[k]; });
+                saveMobilityOtherNotes(allNotes);
+                const allChecks = getMobilityOtherChecks();
+                Object.keys(allChecks).forEach(k => { if (k.endsWith(keyFrag)) delete allChecks[k]; });
+                saveMobilityOtherChecks(allChecks);
+                closeOpenPanel(list, () => { renderMobilityOtherList(); refreshChartAfterDataChange(); });
+            }
+        };
+
+        row.appendChild(check);
+        row.appendChild(title);
+        row.appendChild(del);
+
+        const panel = document.createElement('div');
+        panel.className = 'inline-notes-panel';
+
+        const ta = document.createElement('textarea');
+        ta.className = 'sp-notes-input';
+        ta.placeholder = 'Notes...';
+        ta.value = getMobilityOtherNotes()[noteKey] || '';
+
+        const saveEntry = () => {
+            const allNotes = getMobilityOtherNotes();
+            const value = ta.value.trim();
+            if (value) allNotes[noteKey] = value; else delete allNotes[noteKey];
+            saveMobilityOtherNotes(allNotes);
+            refreshChartAfterDataChange();
+        };
+        ta.addEventListener('blur', saveEntry);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'ex-close-btn';
+        closeBtn.textContent = 'CLOSE';
+        closeBtn.onclick = () => {
+            saveEntry();
+            panel.classList.remove('open');
+            row.classList.remove('open');
+            list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+        };
+
+        panel.appendChild(ta);
+        panel.appendChild(closeBtn);
+
+        // Long-press to rename
+        let pressTimer = null;
+        let renameTriggered = false;
+        row.addEventListener('contextmenu', e => e.preventDefault());
+        row.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.exercise-delete-btn')) return;
+            if (e.target.closest('.mindset-check')) return;
+            if (panel.classList.contains('open')) return;
+            renameTriggered = false;
+            pressTimer = setTimeout(() => {
+                renameTriggered = true;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'entry-rename-input';
+                input.value = item;
+                title.replaceWith(input);
+                input.focus(); input.select();
+                let done = false;
+                const commit = (save) => {
+                    if (done) return; done = true;
+                    const newName = input.value.trim();
+                    if (save && newName && newName !== item) {
+                        renameMobilityOtherItem(item, newName);
+                        renderMobilityOtherList();
+                        return;
+                    }
+                    if (input.parentNode) input.replaceWith(title);
+                };
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+                    else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+                });
+                input.addEventListener('blur', () => commit(true));
+                input.addEventListener('click', e => e.stopPropagation());
+            }, 600);
+        });
+        row.addEventListener('pointerup', () => clearTimeout(pressTimer));
+        row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+
+        const openNotesPanel = () => {
+            if (panel.classList.contains('open')) { setTimeout(() => ta.focus(), 50); return; }
+            list.querySelectorAll('.entry-wrapper').forEach(w => { if (w !== wrapper) collapseEntryWrapper(w); });
+            panel.classList.add('open');
+            row.classList.add('open');
+            setTimeout(() => ta.focus(), 400);
+        };
+
+        check.onclick = (e) => {
+            e.stopPropagation();
+            setMobilityOtherChecked(item, !isMobilityOtherChecked(item));
+            syncCheck();
+            renderMuscleGrid();
+            refreshChartAfterDataChange();
+            openNotesPanel();
+        };
+
+        row.onclick = (e) => {
+            if (e.target.closest('.exercise-delete-btn')) return;
+            if (e.target.closest('.mindset-check')) return;
+            if (renameTriggered) { renameTriggered = false; return; }
+            if (panel.classList.contains('open')) {
+                saveEntry();
+                panel.classList.remove('open');
+                row.classList.remove('open');
+                list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+                return;
+            }
+            openNotesPanel();
+        };
+
+        inner.appendChild(row);
+        inner.appendChild(panel);
+        wrapper.appendChild(inner);
+        list.appendChild(wrapper);
+    });
+}
 
 function getMobilitySimpleNotes() {
     const raw = Storage.getItem(MOBILITY_SIMPLE_KEY);
@@ -1629,17 +1861,15 @@ function renderMuscleGrid() {
     });
 
 
-    const simpleNotes = getMobilitySimpleNotes();
-    MOBILITY_EXTRAS.forEach(type => {
-        const btn = document.createElement('button');
-        btn.className = 'muscle-btn';
-        const noteKey = getMobilitySimpleKey(type);
-        const isDone = !!(simpleNotes[noteKey] && String(simpleNotes[noteKey]).trim());
-        if (isDone) btn.classList.add('has-data');
-        btn.textContent = type.toUpperCase();
-        btn.onclick = () => toggleMobilityExtra(type);
-        grid.appendChild(btn);
-    });
+    const otherBtn = document.createElement('button');
+    otherBtn.className = 'muscle-btn';
+    if (mobilityOtherHasDataToday()) otherBtn.classList.add('has-data');
+    otherBtn.textContent = 'OTHER';
+    otherBtn.onclick = () => {
+        renderMobilityOtherList();
+        showExScreen('ex-screen-mobility-other');
+    };
+    grid.appendChild(otherBtn);
 }
 
 // Toggle a mobility extra (Yoga / Posture) on or off for the current day.
@@ -2317,6 +2547,34 @@ document.getElementById('closeExerciseModal2').onclick = () => {
     renderMuscleGrid();
     showExScreen('ex-screen-muscles');
 };
+document.getElementById('closeMobilityOther').onclick = () => {
+    renderMuscleGrid();
+    showExScreen('ex-screen-muscles');
+};
+document.getElementById('mobilityOtherAddBtn').onclick = () => {
+    const input = document.getElementById('mobilityOtherInput');
+    const name  = input.value.trim();
+    if (!name) return;
+    const lib = getMobilityOtherLibrary();
+    if (!lib.map(b => b.toLowerCase()).includes(name.toLowerCase())) {
+        lib.push(name);
+        saveMobilityOtherLibrary(lib);
+    }
+    input.value = '';
+    const list = document.getElementById('mobility-other-list');
+    closeOpenPanel(list, () => {
+        renderMobilityOtherList();
+        const wrappers = list.querySelectorAll('.entry-wrapper');
+        const newest = wrappers[wrappers.length - 1];
+        if (newest) {
+            newest.classList.add('entry-collapsing');
+            requestAnimationFrame(() => requestAnimationFrame(() => newest.classList.remove('entry-collapsing')));
+        }
+    });
+};
+document.getElementById('mobilityOtherInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('mobilityOtherAddBtn').click();
+});
 document.getElementById('closeExerciseModal3').onclick = () => {
     saveSets();
     showExScreen('ex-screen-exercises');
