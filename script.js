@@ -97,10 +97,18 @@ async function _loadFromCloud() {
 }
 
 // ─── Sign-in overlay ──────────────────────────────────────────────────────────
-// A minimal email-magic-link flow. Renders a fullscreen card the first time
-// you open the app on a device. After clicking the link in the email, the
-// session is stored locally (Supabase SDK handles this) and the overlay
-// won't appear again on this device.
+// ─── Sign-in overlay ──────────────────────────────────────────────────────────
+// Password-only flow. Behind the scenes Supabase still requires an email, so
+// we use a fixed fake one and the user only ever types the password.
+//
+// The fake email is visible in this file (it's just a username), so the
+// password is the only thing protecting the account. Pick a real password.
+//
+// First open: enters password → tries to sign in → if that fails, signs up
+//             with the same password (creating the account).
+// Every open after that: enters password → signs in.
+const AUTH_FAKE_EMAIL = 'vault@vitals.local';
+
 function _renderSignInOverlay() {
     if (document.getElementById('auth-overlay')) return;
     const wrap = document.createElement('div');
@@ -108,28 +116,75 @@ function _renderSignInOverlay() {
     wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#0a0a0a;display:flex;align-items:center;justify-content:center;padding:1.5rem;font-family:inherit;color:#f0ece4;';
     wrap.innerHTML = `
       <div style="max-width:340px;width:100%;text-align:center;">
-        <h2 style="font-family:inherit;letter-spacing:0.1em;font-weight:400;margin-bottom:0.4rem;">SIGN IN</h2>
-        <p style="opacity:0.55;font-size:0.85rem;margin:0 0 1.4rem;">Enter your email — we'll send a one-tap login link.</p>
-        <input id="auth-email" type="email" placeholder="you@example.com"
+        <h2 style="font-family:inherit;letter-spacing:0.1em;font-weight:400;margin-bottom:0.4rem;">UNLOCK</h2>
+        <p style="opacity:0.55;font-size:0.85rem;margin:0 0 1.4rem;">Enter your password.</p>
+        <input id="auth-password" type="password" placeholder="password" autocomplete="current-password"
                style="width:100%;padding:0.7rem 0.8rem;background:#141414;border:1px solid #333;border-radius:6px;color:#f0ece4;font-size:0.95rem;margin-bottom:0.8rem;box-sizing:border-box;" />
-        <button id="auth-send"
-                style="width:100%;padding:0.7rem;background:#c9a96e;color:#0a0a0a;border:none;border-radius:6px;font-weight:600;letter-spacing:0.05em;cursor:pointer;">SEND LINK</button>
+        <button id="auth-go"
+                style="width:100%;padding:0.7rem;background:#c9a96e;color:#0a0a0a;border:none;border-radius:6px;font-weight:600;letter-spacing:0.05em;cursor:pointer;">UNLOCK</button>
         <p id="auth-status" style="margin-top:1rem;font-size:0.8rem;opacity:0.7;min-height:1.2em;"></p>
       </div>`;
     document.body.appendChild(wrap);
     const status = wrap.querySelector('#auth-status');
-    wrap.querySelector('#auth-send').onclick = async () => {
-        const email = wrap.querySelector('#auth-email').value.trim();
-        if (!email) { status.textContent = 'Please enter your email.'; return; }
-        status.textContent = 'Sending…';
-        const { error } = await _sb.auth.signInWithOtp({
-            email,
-            options: { emailRedirectTo: window.location.href }
+    const pwInput = wrap.querySelector('#auth-password');
+    const goBtn = wrap.querySelector('#auth-go');
+
+    const submit = async () => {
+        const password = pwInput.value;
+        if (!password || password.length < 6) {
+            status.textContent = 'Password must be at least 6 characters.';
+            return;
+        }
+        status.textContent = 'Unlocking…';
+        goBtn.disabled = true;
+
+        // Try sign-in first. If the user doesn't exist yet (first run on this
+        // Supabase project), fall back to sign-up with the same password.
+        let { error } = await _sb.auth.signInWithPassword({
+            email: AUTH_FAKE_EMAIL,
+            password
         });
-        status.textContent = error
-            ? ('Error: ' + error.message)
-            : 'Check your email for the link.';
+
+        if (error && /invalid login credentials/i.test(error.message)) {
+            // Try creating the account on the fly.
+            const { error: signUpErr } = await _sb.auth.signUp({
+                email: AUTH_FAKE_EMAIL,
+                password
+            });
+            if (signUpErr) {
+                // Could be: account exists with a DIFFERENT password (wrong
+                // password), or email confirmation is still on, or rate-limit.
+                status.textContent = 'Wrong password.';
+                goBtn.disabled = false;
+                return;
+            }
+            // Account created. Now sign in.
+            const { error: secondErr } = await _sb.auth.signInWithPassword({
+                email: AUTH_FAKE_EMAIL,
+                password
+            });
+            if (secondErr) {
+                status.textContent = secondErr.message.includes('confirm')
+                    ? 'Turn off "Confirm email" in Supabase Auth settings.'
+                    : ('Error: ' + secondErr.message);
+                goBtn.disabled = false;
+                return;
+            }
+        } else if (error) {
+            status.textContent = 'Error: ' + error.message;
+            goBtn.disabled = false;
+            return;
+        }
+
+        // onAuthStateChange in the boot flow will pick up the new session.
+        status.textContent = 'Loading…';
     };
+
+    goBtn.onclick = submit;
+    pwInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    });
+    setTimeout(() => pwInput.focus(), 50);
 }
 function _removeSignInOverlay() {
     const el = document.getElementById('auth-overlay');
