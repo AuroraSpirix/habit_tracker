@@ -898,6 +898,51 @@ document.getElementById('nextDay').addEventListener('click', () => {
     loadDayData();
 });
 
+// ── Swipe left/right on the main view to change day ───────────────────────────
+(function () {
+    const COMMIT_THRESHOLD = 60;
+    const DRAG_THRESHOLD   = 8;
+    const MODAL_IDS = ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal','calendarModal','noteModal','avoidedModal'];
+
+    const container = document.querySelector('.app-container');
+    let startX = 0, startY = 0, tracking = false, dragging = false, capturedId = null;
+
+    container.addEventListener('pointerdown', (e) => {
+        if (tracking) return;
+        if (MODAL_IDS.some(id => document.getElementById(id).style.display === 'flex')) return;
+        if (e.target.closest('#sins-mixer')) return; // mixer has its own swipe
+        startX = e.clientX; startY = e.clientY;
+        tracking = true; dragging = false; capturedId = e.pointerId;
+    });
+
+    container.addEventListener('pointermove', (e) => {
+        if (!tracking || e.pointerId !== capturedId) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!dragging) {
+            if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            if (Math.abs(dy) > Math.abs(dx)) { tracking = false; return; } // vertical → scroll
+            dragging = true;
+            try { container.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+        e.preventDefault();
+    }, { passive: false });
+
+    const endSwipe = (e) => {
+        if (!tracking || e.pointerId !== capturedId) return;
+        tracking = false; capturedId = null;
+        if (!dragging) return;
+        dragging = false;
+        const dx = e.clientX - startX;
+        if (Math.abs(dx) >= COMMIT_THRESHOLD) {
+            viewDate.setDate(viewDate.getDate() + (dx < 0 ? 1 : -1));
+            loadDayData();
+        }
+    };
+
+    container.addEventListener('pointerup', endSwipe);
+    container.addEventListener('pointercancel', endSwipe);
+})();
 
 loadDayData();                              // render immediately with defaults
 _loadFromJsonBin().then(() => {
@@ -1991,63 +2036,45 @@ function renderExerciseList() {
             }
         };
 
+        const handle = document.createElement('span');
+        handle.className = 'ex-drag-handle';
+        handle.textContent = '⠿';
+
+        row.appendChild(handle);
         row.appendChild(name);
         row.appendChild(meta);
         row.appendChild(del);
 
-        // Drag-to-reorder: long-press on touch, regular drag on mouse.
-        // Tap (without drag) still opens the sets screen via the click handler below.
-        attachExerciseDragHandlers(row, ex);
+        row.onclick = (e) => {
+            if (e.target.closest('.exercise-delete-btn')) return;
+            if (e.target.closest('.ex-drag-handle')) return;
+            openSetsScreen(ex);
+        };
+
+        attachExerciseDragHandlers(handle, row);
 
         list.appendChild(row);
     });
 }
 
 // ─── Exercise drag-to-reorder ────────────────────────────────────────
-// Long-press (350ms) on touch or immediate drag on mouse to grab a row.
-// Click (no drag) still opens the sets screen.
-// The dragged row visually "lifts" and follows the pointer; the other rows
-// reflow live underneath so you can see exactly where it'll land before drop.
-let _exDrag = null; // null when not dragging; otherwise an object with state
+// Grab the ⠿ handle on the left of each row to reorder. touch-action:none
+// on the handle means the browser never competes for the gesture — drag
+// starts as soon as the finger moves > 5px, no long-press timer needed.
+// Tap anywhere else on the row opens the sets screen (via row.onclick).
+let _exDrag = null; // null when idle; otherwise holds drag state
 
-function attachExerciseDragHandlers(row, exerciseName) {
-    let longPressTimer = null;
+function attachExerciseDragHandlers(handle, row) {
     let startX = 0, startY = 0;
-    let pointerDownTime = 0;
     let activePointerId = null;
-    let dragArmed = false; // becomes true once long-press fires (touch) or move threshold passes (mouse)
-
-    const cleanupTimer = () => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-        row.classList.remove('long-pressing');
-    };
+    let dragStarted = false;
 
     const onPointerDown = (e) => {
-        // Ignore right-click and the delete button
         if (e.button === 2) return;
-        if (e.target.classList.contains('exercise-delete-btn')) return;
-
         activePointerId = e.pointerId;
         startX = e.clientX;
         startY = e.clientY;
-        pointerDownTime = Date.now();
-        dragArmed = false;
-
-        if (e.pointerType === 'touch') {
-            // On touch: arm a long-press timer. While armed, we don't drag yet.
-            row.classList.add('long-pressing');
-            longPressTimer = setTimeout(() => {
-                longPressTimer = null;
-                row.classList.remove('long-pressing');
-                dragArmed = true;
-                beginDrag();
-                if (navigator.vibrate) navigator.vibrate(15);
-            }, 350);
-        }
-
+        dragStarted = false;
         document.addEventListener('pointermove', onPointerMove);
         document.addEventListener('pointerup', onPointerUp);
         document.addEventListener('pointercancel', onPointerUp);
@@ -2056,95 +2083,55 @@ function attachExerciseDragHandlers(row, exerciseName) {
     const beginDrag = () => {
         const list = document.getElementById('exercise-list');
         const rect = row.getBoundingClientRect();
-
-        // Snapshot every row's current top before we lift anything, so we can
-        // animate them with FLIP later when their positions change.
-        const otherRows = Array.from(list.querySelectorAll('.exercise-row'))
-            .filter(r => r !== row);
-
+        const otherRows = Array.from(list.querySelectorAll('.exercise-row')).filter(r => r !== row);
         _exDrag = {
-            row,
-            list,
-            otherRows,
+            row, list, otherRows,
             rowHeight: rect.height,
-            // Where on the row the pointer grabbed it (relative to row top).
-            // We preserve this offset throughout the drag so the row doesn't
-            // jump under the cursor when the DOM reorders.
             grabOffsetY: startY - rect.top,
             currentBeforeRow: null,
         };
-
-        // Mark the row as the floating one. CSS handles the visual lift.
         row.classList.add('dragging');
-        try { row.setPointerCapture(activePointerId); } catch (e) {}
+        try { row.setPointerCapture(activePointerId); } catch (_) {}
+        if (navigator.vibrate) navigator.vibrate(15);
     };
 
     const onPointerMove = (e) => {
         if (e.pointerId !== activePointerId) return;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // On touch: any move > 8px before long-press fires cancels the long-press
-        // (treats it as a scroll attempt instead of a drag).
-        if (e.pointerType === 'touch' && longPressTimer && dist > 8) {
-            cleanupTimer();
-            return;
-        }
-
-        // On mouse: start dragging once we've moved past 5px.
-        if (e.pointerType !== 'touch' && !dragArmed && dist > 5) {
-            dragArmed = true;
+        if (!dragStarted) {
+            if (Math.sqrt(dx * dx + dy * dy) < 5) return;
+            dragStarted = true;
             beginDrag();
         }
 
-        if (!dragArmed || !_exDrag) return;
-
+        if (!_exDrag) return;
         e.preventDefault();
 
         const pointerY = e.clientY;
         const list = _exDrag.list;
 
-        // Helper: anchor the dragged row so the cursor stays at the same spot
-        // on it as where the user originally grabbed. We compute against the
-        // row's CURRENT natural layout position (without its own transform),
-        // which works correctly even after DOM reorders.
         const anchorToPointer = () => {
-            // Temporarily remove transform to read the row's natural position
-            const prev = _exDrag.row.style.transform;
             _exDrag.row.style.transform = '';
             const naturalTop = _exDrag.row.getBoundingClientRect().top;
             const desiredTop = pointerY - _exDrag.grabOffsetY;
             _exDrag.row.style.transform = `translateY(${desiredTop - naturalTop}px)`;
         };
 
-        // First, anchor the row to the pointer at its current DOM position.
         anchorToPointer();
 
-        // Figure out which other-row's vertical midpoint the pointer is past,
-        // and swap the dragged row in front of it.
-        let insertBefore = null; // null → append at end
+        let insertBefore = null;
         for (const other of _exDrag.otherRows) {
             const r = other.getBoundingClientRect();
-            const mid = r.top + r.height / 2;
-            if (pointerY < mid) {
-                insertBefore = other;
-                break;
-            }
+            if (pointerY < r.top + r.height / 2) { insertBefore = other; break; }
         }
 
         if (insertBefore !== _exDrag.currentBeforeRow) {
-            // FLIP: capture old positions of the OTHER rows (the ones that will
-            // shift), move the dragged row in the DOM, then animate them from
-            // their old positions to their new ones.
             const movedRows = _exDrag.otherRows;
-            // Clear any leftover transforms before measuring so we get true
-            // layout positions, not animation-in-progress positions.
             movedRows.forEach(r => { r.style.transition = 'none'; r.style.transform = ''; });
             const firstRects = movedRows.map(r => r.getBoundingClientRect());
 
-            // Move the dragged row in the DOM. Its transform stays — anchorToPointer
-            // will be called again right after to re-anchor based on new position.
             if (insertBefore) {
                 list.insertBefore(_exDrag.row, insertBefore);
             } else {
@@ -2152,13 +2139,10 @@ function attachExerciseDragHandlers(row, exerciseName) {
             }
             _exDrag.currentBeforeRow = insertBefore;
 
-            // Re-anchor the dragged row to the pointer at its new DOM home.
             anchorToPointer();
 
-            // Animate the other rows from their old layout positions to their new ones.
             movedRows.forEach((r, i) => {
-                const last = r.getBoundingClientRect();
-                const delta = firstRects[i].top - last.top;
+                const delta = firstRects[i].top - r.getBoundingClientRect().top;
                 if (delta) {
                     r.style.transition = 'none';
                     r.style.transform = `translateY(${delta}px)`;
@@ -2173,44 +2157,27 @@ function attachExerciseDragHandlers(row, exerciseName) {
 
     const onPointerUp = (e) => {
         if (e.pointerId !== activePointerId) return;
-        cleanupTimer();
         document.removeEventListener('pointermove', onPointerMove);
         document.removeEventListener('pointerup', onPointerUp);
         document.removeEventListener('pointercancel', onPointerUp);
 
-        const wasDragging = !!_exDrag;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const elapsed = Date.now() - pointerDownTime;
-
-        if (wasDragging) {
-            // The DOM is already in the new order — read it back and persist.
+        if (_exDrag) {
             const list = _exDrag.list;
             const finalOrder = Array.from(list.querySelectorAll('.exercise-row'))
                 .map(r => r.querySelector('.exercise-row-name').textContent);
-
-            // Drop visual state. Clear inline styles on every row.
             _exDrag.row.classList.remove('dragging');
             _exDrag.row.style.transform = '';
-            _exDrag.otherRows.forEach(r => {
-                r.style.transition = '';
-                r.style.transform = '';
-            });
+            _exDrag.otherRows.forEach(r => { r.style.transition = ''; r.style.transform = ''; });
             _exDrag = null;
-
             persistExerciseOrder(finalOrder);
-        } else if (e.pointerType !== 'touch' && dist < 5 && elapsed < 500) {
-            openSetsScreen(exerciseName);
-        } else if (e.pointerType === 'touch' && dist < 8 && elapsed < 350) {
-            openSetsScreen(exerciseName);
         }
 
         activePointerId = null;
-        dragArmed = false;
+        dragStarted = false;
     };
 
-    row.addEventListener('pointerdown', onPointerDown);
+    handle.addEventListener('pointerdown', onPointerDown);
+    handle.addEventListener('click', e => e.stopPropagation());
 }
 
 function persistExerciseOrder(newOrder) {
@@ -2968,18 +2935,24 @@ document.getElementById('closeRecoveryModal').onclick = () => {
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─── REFLECTION 3-2-1 ────────────────────────────────────────────────────────
-const RF_SECTIONS = { happy: 5, grateful: 3, learned: 2, better: 1 };
+// ─── REFLECTION ───────────────────────────────────────────────────────────────
+const RF_SECTIONS = ['happy', 'grateful', 'learned', 'helped', 'better'];
 
 function getRfData() {
     const raw = Storage.getItem('reflection_321');
     const all = raw ? JSON.parse(raw) : {};
     const day = all[getDateKey(viewDate)] || {};
+    const trim = arr => {
+        const a = [...(arr && arr.length ? arr : [''])];
+        while (a.length > 1 && !a[a.length - 1].trim()) a.pop();
+        return a;
+    };
     return {
-        happy:    day.happy    || ['', '', '', '', ''],
-        grateful: day.grateful || ['', '', ''],
-        learned:  day.learned  || ['', ''],
-        better:   day.better   || [''],
+        happy:    trim(day.happy),
+        grateful: trim(day.grateful),
+        learned:  trim(day.learned),
+        helped:   trim(day.helped),
+        better:   trim(day.better),
     };
 }
 
@@ -2990,80 +2963,149 @@ function saveRfData(data) {
     Storage.setItem('reflection_321', JSON.stringify(all));
 }
 
+function saveCurrentRfSection(section) {
+    const body = document.getElementById('rf-body-' + section);
+    const values = Array.from(body.querySelectorAll('.rf-input')).map(i => i.value);
+    const data = getRfData();
+    data[section] = values;
+    saveRfData(data);
+    updateRfSectionStyle(section, data);
+    refreshChartAfterDataChange();
+}
+
 function updateRfSectionStyle(section, data) {
     const hasContent = data[section].some(v => v.trim());
     document.getElementById('rf-sec-' + section).classList.toggle('rf-has-content', hasContent);
 }
 
+function renumberRfBullets(section) {
+    document.getElementById('rf-body-' + section)
+        .querySelectorAll('.rf-bullet')
+        .forEach((b, i) => { b.textContent = (i + 1) + '.'; });
+}
+
+function attachRfInputHandlers(section, input) {
+    input.addEventListener('input', () => saveCurrentRfSection(section));
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveCurrentRfSection(section);
+            const body = document.getElementById('rf-body-' + section);
+            const inputs = Array.from(body.querySelectorAll('.rf-input'));
+            const idx = inputs.indexOf(input);
+            const newInput = insertRfRowAfter(section, idx);
+            newInput.focus();
+
+        } else if (e.key === 'Tab') {
+            e.preventDefault();
+            saveCurrentRfSection(section);
+            rfCloseSection(section);
+            const next = RF_SECTIONS[RF_SECTIONS.indexOf(section) + 1];
+            if (next) rfOpenSection(next);
+
+        } else if (e.key === 'Backspace' && input.value === '') {
+            const body = document.getElementById('rf-body-' + section);
+            const inputs = Array.from(body.querySelectorAll('.rf-input'));
+            if (inputs.length > 1) {
+                e.preventDefault();
+                const idx = inputs.indexOf(input);
+                input.closest('.rf-input-row').remove();
+                renumberRfBullets(section);
+                saveCurrentRfSection(section);
+                inputs[Math.max(0, idx - 1)].focus();
+            }
+        }
+    });
+}
+
+function insertRfRowAfter(section, idx) {
+    const body = document.getElementById('rf-body-' + section);
+    const rows = Array.from(body.querySelectorAll('.rf-input-row'));
+    const row = document.createElement('div');
+    row.className = 'rf-input-row';
+    const bullet = document.createElement('span');
+    bullet.className = 'rf-bullet';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'rf-input';
+    row.appendChild(bullet);
+    row.appendChild(input);
+    if (idx < rows.length - 1) {
+        rows[idx + 1].before(row);
+    } else {
+        body.appendChild(row);
+    }
+    renumberRfBullets(section);
+    attachRfInputHandlers(section, input);
+    return input;
+}
+
+function renderRfSection(section, values) {
+    const body = document.getElementById('rf-body-' + section);
+    body.innerHTML = '';
+    values.forEach((val, i) => {
+        const row = document.createElement('div');
+        row.className = 'rf-input-row';
+        const bullet = document.createElement('span');
+        bullet.className = 'rf-bullet';
+        bullet.textContent = (i + 1) + '.';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'rf-input';
+        input.value = val;
+        row.appendChild(bullet);
+        row.appendChild(input);
+        body.appendChild(row);
+        attachRfInputHandlers(section, input);
+    });
+}
+
+function rfCloseSection(section) {
+    document.getElementById('rf-body-' + section).classList.remove('rf-body-open');
+    document.getElementById('rf-hdr-' + section).classList.remove('rf-open');
+}
+
+function rfOpenSection(section, delay) {
+    const data = getRfData();
+    renderRfSection(section, data[section]);
+    const body = document.getElementById('rf-body-' + section);
+    const hdr  = document.getElementById('rf-hdr-' + section);
+    setTimeout(() => {
+        body.classList.add('rf-body-open');
+        hdr.classList.add('rf-open');
+        setTimeout(() => {
+            const first = body.querySelector('.rf-input');
+            if (first) first.focus();
+        }, 50);
+    }, delay || 0);
+}
+
 function openReflectionModal() {
     const data = getRfData();
-    Object.keys(RF_SECTIONS).forEach(section => {
-        data[section].forEach((val, i) => {
-            document.getElementById('rf-' + section + '-' + i).value = val;
-        });
+    RF_SECTIONS.forEach(section => {
+        renderRfSection(section, data[section]);
         updateRfSectionStyle(section, data);
-        // reset chevron + collapse all on open
-        const hdr = document.getElementById('rf-hdr-' + section);
-        const body = document.getElementById('rf-body-' + section);
-        hdr.classList.remove('rf-open');
-        body.classList.remove('rf-body-open');
+        rfCloseSection(section);
     });
     document.getElementById('reflectionModal').style.display = 'flex';
 }
 
-Object.entries(RF_SECTIONS).forEach(([section, count]) => {
+RF_SECTIONS.forEach(section => {
     document.getElementById('rf-hdr-' + section).addEventListener('click', () => {
         const body = document.getElementById('rf-body-' + section);
-        const hdr  = document.getElementById('rf-hdr-' + section);
         const opening = !body.classList.contains('rf-body-open');
-
-        const anyOpen = Object.keys(RF_SECTIONS).some(s =>
+        const anyOpen = RF_SECTIONS.some(s =>
             document.getElementById('rf-body-' + s).classList.contains('rf-body-open')
         );
-
-        Object.keys(RF_SECTIONS).forEach(s => {
-            document.getElementById('rf-body-' + s).classList.remove('rf-body-open');
-            document.getElementById('rf-hdr-' + s).classList.remove('rf-open');
-        });
-
-        if (opening) {
-            setTimeout(() => {
-                body.classList.add('rf-body-open');
-                hdr.classList.add('rf-open');
-                setTimeout(() => document.getElementById('rf-' + section + '-0').focus(), 50);
-            }, anyOpen ? 320 : 0);
-        }
-    });
-
-    for (let i = 0; i < count; i++) {
-        const input = document.getElementById('rf-' + section + '-' + i);
-
-        input.addEventListener('input', (e) => {
-            const data = getRfData();
-            data[section][i] = e.target.value;
-            saveRfData(data);
-            updateRfSectionStyle(section, data);
-            refreshChartAfterDataChange();
-        });
-
-        input.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
-            e.preventDefault();
-            if (i < count - 1) {
-                document.getElementById('rf-' + section + '-' + (i + 1)).focus();
-            } else {
-                const sections = Object.keys(RF_SECTIONS);
-                const nextSection = sections[sections.indexOf(section) + 1];
-                document.getElementById('rf-body-' + section).classList.remove('rf-body-open');
-                document.getElementById('rf-hdr-' + section).classList.remove('rf-open');
-                if (nextSection) {
-                    document.getElementById('rf-body-' + nextSection).classList.add('rf-body-open');
-                    document.getElementById('rf-hdr-' + nextSection).classList.add('rf-open');
-                    setTimeout(() => document.getElementById('rf-' + nextSection + '-0').focus(), 50);
-                }
+        RF_SECTIONS.forEach(s => {
+            if (document.getElementById('rf-body-' + s).classList.contains('rf-body-open')) {
+                saveCurrentRfSection(s);
             }
+            rfCloseSection(s);
         });
-    }
+        if (opening) rfOpenSection(section, anyOpen ? 320 : 0);
+    });
 });
 
 document.getElementById('closeReflectionModal').onclick = () => {

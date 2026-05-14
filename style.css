@@ -449,8 +449,8 @@ button:hover {
     box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px var(--border-bright);
     scrollbar-width: none;
 }
-
 .modal-content::-webkit-scrollbar { display: none; }
+
 
 @keyframes fadeScale {
     from { transform: scale(0.96); opacity: 0; }
@@ -653,7 +653,6 @@ button:hover {
     padding: 15px 22px 10px;
     scrollbar-width: none;
 }
-
 .exercise-modal-content::-webkit-scrollbar { display: none; }
 
 .ex-screen { width: 100%; }
@@ -783,10 +782,6 @@ button:hover {
     flex-direction: column;
     gap: 5px;
     margin-bottom: 12px;
-    max-height: 220px;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
 }
 
 .exercise-row {
@@ -810,7 +805,7 @@ button:hover {
 
 /* ─── Drag-to-reorder states ─────────────────────────────────────── */
 .exercise-row {
-    touch-action: pan-y; /* allow vertical scrolling but we'll override on long-press */
+    touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
 }
@@ -830,16 +825,22 @@ button:hover {
     will-change: transform;
 }
 
-/* Slight pulse while waiting for the long-press timer to fire on mobile */
-.exercise-row.long-pressing {
-    background: var(--surface-3);
-    border-color: var(--border-bright);
+/* Drag handle — grab this to reorder. touch-action:none so the browser never
+   tries to scroll when the user presses here; drag starts immediately. */
+.ex-drag-handle {
+    touch-action: none;
+    cursor: grab;
+    color: var(--text-faint);
+    font-size: 0.9rem;
+    padding: 8px 10px 8px 0;
+    margin: -8px 0;
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    line-height: 1;
 }
+.ex-drag-handle:active { cursor: grabbing; }
 
-/* Keep the list from showing a horizontal scrollbar while dragging */
-.exercise-list {
-    overflow-x: hidden;
-}
 
 .exercise-row-name {
     font-family: var(--font-mono);
@@ -1296,10 +1297,6 @@ p {
     transition: color var(--transition), text-shadow var(--transition);
 }
 
-#day-name:hover {
-    color: #fff;
-    text-shadow: 0 0 18px rgba(255,255,255,0.6), 0 0 40px rgba(255,255,255,0.2);
-}
 
 @keyframes dayFlash {
     0%   { color: var(--text); text-shadow: none; }
@@ -1511,7 +1508,7 @@ p {
 }
 
 .rf-section-body.rf-body-open {
-    max-height: 500px;
+    max-height: 1200px;
     opacity: 1;
     padding: 4px 16px 14px;
 }
