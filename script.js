@@ -303,22 +303,25 @@ let currentHandleIdx = null;
 // radar chart, starting from the TOP and going CLOCKWISE.
 //
 //                    [0] (top)
-//                  /         \
-//              [5]             [1]
-//               |               |
-//              [4]             [2]
-//                  \         /
-//                    [3] (bottom)
+//                 /           \
+//             [6]               [1]
+//            /                     \
+//          [5]                     [2]
+//            \                     /
+//             [4]               [3]
+//                 \           /
+//                   (bottom)
 //
 // To reorder labels, just rearrange the items in this array.
 // The "value" is the default starting value (out of 10) for an untouched dot.
 const defaultValues = [
     { name: 'Spirituality', value: 2, note: '' },
-    { name: 'Mobility', value: 2, note: '' },
+    { name: 'Recovery', value: 2, note: '' },
     { name: 'Mindset', value: 2, note: '' },
     { name: 'Mindfulness', value: 2, note: '' },
-    { name: 'Recovery', value: 2, note: '' },
-    { name: 'Reflection', value: 2, note: '' }
+    { name: 'Reflection', value: 2, note: '' },
+    { name: 'Mobility', value: 2, note: '' },
+    { name: 'Creativity', value: 2, note: '' }
 ];
 
 const avoidedActivitiesList = ['Pride', 'Greed', 'Lust', 'Envy', 'Gluttony', 'Wrath', 'Sloth'];
@@ -470,6 +473,11 @@ function isCategoryCompleted(catName) {
         const checks = JSON.parse(Storage.getItem('exercise_set_checks') || '{}');
         if (Object.keys(checks).some(k => k.startsWith(datePrefix) && (checks[k] || []).some(Boolean))) return true;
         return mobilityOtherHasDataToday();
+    }
+    if (catName === 'Creativity') {
+        const prefix = getDateKey(viewDate) + '__';
+        const checks = getCreativityChecks();
+        return Object.keys(checks).some(k => k.startsWith(prefix) && checks[k]);
     }
     return false;
 }
@@ -633,6 +641,14 @@ function createGrid() {
     }
 
 
+    // ── Bottom label spread ───────────────────────────────────────────────────
+    // Indices 3 (Mindfulness) and 4 (Recovery) sit at the bottom of the shape.
+    // Decrease this number to push them CLOSER together; increase to spread them APART.
+    // The default for all other labels is maxValue + 1.5.
+    const BOTTOM_LABEL_DISTANCE = maxValue - 3;
+    // Increase to push the bottom two labels DOWN; decrease (or use negative) to move them UP.
+    const BOTTOM_LABEL_Y_OFFSET = 75;
+
     categories.forEach((cat, i) => {
         const outer = getCoords(i, maxValue);
         const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -642,14 +658,11 @@ function createGrid() {
         svg.appendChild(line);
 
 
-        // Label distance from center. maxValue is 10 (the outer ring of the chart),
-        // so adding to it pushes labels OUTSIDE the chart. Lower value = closer to center.
-        // Was maxValue + 3, now maxValue + 1.5 for tighter labels.
-        const labelDistance = maxValue + 1.5;
+        const labelDistance = (i === 3 || i === 4) ? BOTTOM_LABEL_DISTANCE : maxValue + 1.5;
         const labelPos = getCoords(i, labelDistance);
         const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
         text.setAttribute("x", labelPos.x);
-        text.setAttribute("y", labelPos.y);
+        text.setAttribute("y", labelPos.y + ((i === 3 || i === 4) ? BOTTOM_LABEL_Y_OFFSET : 0));
 
 
         const hasNote = isCategoryCompleted(cat.name);
@@ -901,7 +914,7 @@ document.getElementById('nextDay').addEventListener('click', () => {
 (function () {
     const COMMIT_THRESHOLD = 60;
     const DRAG_THRESHOLD   = 8;
-    const MODAL_IDS = ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal','calendarModal','noteModal','avoidedModal'];
+    const MODAL_IDS = ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal','calendarModal','noteModal','avoidedModal','creativityModal'];
 
     const container = document.querySelector('.app-container');
     let startX = 0, startY = 0, tracking = false, dragging = false, capturedId = null;
@@ -1238,6 +1251,7 @@ function openNoteModal(index) {
     if (cat.name === 'Recovery') { openRecoveryModal(); return; }
     if (cat.name === 'Reflection') { openReflectionModal(); return; }
     if (cat.name === 'Mindset') { openMindsetModal(); return; }
+    if (cat.name === 'Creativity') { openCreativityModal(); return; }
     activeNoteIdx = index;
     noteTitle.textContent = cat.name.toUpperCase() + " NOTES";
     noteArea.value = cat.note || "";
@@ -1876,6 +1890,240 @@ function renderMobilityOtherList() {
         wrapper.appendChild(inner);
         list.appendChild(wrapper);
     });
+}
+
+// ─── Creativity list ──────────────────────────────────────────────────────────
+function getCreativityLibrary() {
+    const raw = Storage.getItem('creativity_library');
+    return raw ? JSON.parse(raw) : [];
+}
+function saveCreativityLibrary(lib) {
+    Storage.setItem('creativity_library', JSON.stringify(lib));
+}
+function getCreativityChecks() {
+    const raw = Storage.getItem('creativity_checks');
+    return raw ? JSON.parse(raw) : {};
+}
+function saveCreativityChecks(checks) {
+    Storage.setItem('creativity_checks', JSON.stringify(checks));
+}
+function getCreativityNotes() {
+    const raw = Storage.getItem('creativity_notes');
+    return raw ? JSON.parse(raw) : {};
+}
+function saveCreativityNotes(notes) {
+    Storage.setItem('creativity_notes', JSON.stringify(notes));
+}
+function getCreativityNoteKey(item) {
+    return getDateKey(viewDate) + '__' + item;
+}
+function isCreativityChecked(item) {
+    return !!getCreativityChecks()[getCreativityNoteKey(item)];
+}
+function setCreativityChecked(item, val) {
+    const checks = getCreativityChecks();
+    const key = getCreativityNoteKey(item);
+    if (val) checks[key] = true; else delete checks[key];
+    saveCreativityChecks(checks);
+}
+function creativityHasDataToday() {
+    const prefix = getDateKey(viewDate) + '__';
+    const notes = getCreativityNotes();
+    if (Object.keys(notes).some(k => k.startsWith(prefix) && notes[k])) return true;
+    const checks = getCreativityChecks();
+    return Object.keys(checks).some(k => k.startsWith(prefix) && checks[k]);
+}
+function renameCreativityItem(oldName, newName) {
+    if (oldName === newName) return;
+    const lib = getCreativityLibrary();
+    const idx = lib.indexOf(oldName);
+    if (idx >= 0) { lib[idx] = newName; saveCreativityLibrary(lib); }
+    const oldSuffix = '__' + oldName;
+    const newSuffix = '__' + newName;
+    const notes = getCreativityNotes();
+    Object.keys(notes).forEach(k => {
+        if (k.endsWith(oldSuffix)) { notes[k.slice(0, -oldSuffix.length) + newSuffix] = notes[k]; delete notes[k]; }
+    });
+    saveCreativityNotes(notes);
+    const checks = getCreativityChecks();
+    Object.keys(checks).forEach(k => {
+        if (k.endsWith(oldSuffix)) { checks[k.slice(0, -oldSuffix.length) + newSuffix] = checks[k]; delete checks[k]; }
+    });
+    saveCreativityChecks(checks);
+}
+
+function renderCreativityList() {
+    const list = document.getElementById('creativity-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const items = getCreativityLibrary();
+
+    if (items.length === 0) {
+        list.innerHTML = '<p class="empty-state">Nothing yet. Add one below.</p>';
+        return;
+    }
+
+    items.forEach(item => {
+        const noteKey = getCreativityNoteKey(item);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'entry-wrapper';
+        const inner = document.createElement('div');
+        inner.className = 'entry-inner';
+
+        const row = document.createElement('div');
+        row.className = 'sp-entry-row';
+
+        const check = document.createElement('button');
+        check.type = 'button';
+        check.className = 'mindset-check';
+        check.setAttribute('aria-label', 'Mark complete');
+        const syncCheck = () => {
+            const on = isCreativityChecked(item);
+            check.classList.toggle('checked', on);
+            check.textContent = on ? '✓' : '';
+        };
+        syncCheck();
+
+        const title = document.createElement('span');
+        title.className = 'sp-entry-topic';
+        title.textContent = item;
+
+        const del = document.createElement('button');
+        del.className = 'exercise-delete-btn';
+        del.textContent = '×';
+        del.onclick = (e) => {
+            e.stopPropagation();
+            if (!del.dataset.confirming) {
+                del.dataset.confirming = '1';
+                del.textContent = '?';
+                del.classList.add('confirming');
+                setTimeout(() => { del.textContent = '×'; del.classList.remove('confirming'); delete del.dataset.confirming; }, 2500);
+            } else {
+                const lib = getCreativityLibrary().filter(b => b !== item);
+                saveCreativityLibrary(lib);
+                const keyFrag = '__' + item;
+                const allNotes = getCreativityNotes();
+                Object.keys(allNotes).forEach(k => { if (k.endsWith(keyFrag)) delete allNotes[k]; });
+                saveCreativityNotes(allNotes);
+                const allChecks = getCreativityChecks();
+                Object.keys(allChecks).forEach(k => { if (k.endsWith(keyFrag)) delete allChecks[k]; });
+                saveCreativityChecks(allChecks);
+                closeOpenPanel(list, () => { renderCreativityList(); refreshChartAfterDataChange(); });
+            }
+        };
+
+        row.appendChild(check);
+        row.appendChild(title);
+        row.appendChild(del);
+
+        const panel = document.createElement('div');
+        panel.className = 'inline-notes-panel';
+
+        const ta = document.createElement('textarea');
+        ta.className = 'sp-notes-input';
+        ta.placeholder = 'Notes...';
+        ta.value = getCreativityNotes()[noteKey] || '';
+
+        const saveEntry = () => {
+            const allNotes = getCreativityNotes();
+            const value = ta.value.trim();
+            if (value) allNotes[noteKey] = value; else delete allNotes[noteKey];
+            saveCreativityNotes(allNotes);
+            refreshChartAfterDataChange();
+        };
+        ta.addEventListener('blur', saveEntry);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'ex-close-btn';
+        closeBtn.textContent = 'CLOSE';
+        closeBtn.onclick = () => {
+            saveEntry();
+            panel.classList.remove('open');
+            row.classList.remove('open');
+            list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+        };
+
+        panel.appendChild(ta);
+        panel.appendChild(closeBtn);
+
+        let pressTimer = null;
+        let renameTriggered = false;
+        row.addEventListener('contextmenu', e => e.preventDefault());
+        row.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.exercise-delete-btn')) return;
+            if (e.target.closest('.mindset-check')) return;
+            if (panel.classList.contains('open')) return;
+            renameTriggered = false;
+            pressTimer = setTimeout(() => {
+                renameTriggered = true;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'entry-rename-input';
+                input.value = item;
+                title.replaceWith(input);
+                input.focus(); input.select();
+                let done = false;
+                const commit = (save) => {
+                    if (done) return; done = true;
+                    const newName = input.value.trim();
+                    if (save && newName && newName !== item) {
+                        renameCreativityItem(item, newName);
+                        renderCreativityList();
+                        return;
+                    }
+                    if (input.parentNode) input.replaceWith(title);
+                };
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+                    else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+                });
+                input.addEventListener('blur', () => commit(true));
+                input.addEventListener('click', e => e.stopPropagation());
+            }, 600);
+        });
+        row.addEventListener('pointerup', () => clearTimeout(pressTimer));
+        row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+
+        const openNotesPanel = () => {
+            if (panel.classList.contains('open')) { setTimeout(() => ta.focus(), 50); return; }
+            list.querySelectorAll('.entry-wrapper').forEach(w => { if (w !== wrapper) collapseEntryWrapper(w); });
+            panel.classList.add('open');
+            row.classList.add('open');
+            setTimeout(() => ta.focus(), 400);
+        };
+
+        check.onclick = (e) => {
+            e.stopPropagation();
+            setCreativityChecked(item, !isCreativityChecked(item));
+            syncCheck();
+            refreshChartAfterDataChange();
+            openNotesPanel();
+        };
+
+        row.onclick = (e) => {
+            if (e.target.closest('.exercise-delete-btn')) return;
+            if (e.target.closest('.mindset-check')) return;
+            if (renameTriggered) { renameTriggered = false; return; }
+            if (panel.classList.contains('open')) {
+                saveEntry();
+                panel.classList.remove('open');
+                row.classList.remove('open');
+                list.querySelectorAll('.entry-wrapper').forEach(expandEntryWrapper);
+                return;
+            }
+            openNotesPanel();
+        };
+
+        inner.appendChild(row);
+        inner.appendChild(panel);
+        wrapper.appendChild(inner);
+        list.appendChild(wrapper);
+    });
+}
+
+function openCreativityModal() {
+    renderCreativityList();
+    document.getElementById('creativityModal').style.display = 'flex';
 }
 
 function getMobilitySimpleNotes() {
@@ -2553,6 +2801,35 @@ document.getElementById('mobilityOtherAddBtn').onclick = () => {
 document.getElementById('mobilityOtherInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('mobilityOtherAddBtn').click();
 });
+
+document.getElementById('closeCreativityModal').onclick = () => {
+    document.getElementById('creativityModal').style.display = 'none';
+};
+document.getElementById('creativityAddBtn').onclick = () => {
+    const input = document.getElementById('creativityInput');
+    const name = input.value.trim();
+    if (!name) return;
+    const lib = getCreativityLibrary();
+    if (!lib.map(b => b.toLowerCase()).includes(name.toLowerCase())) {
+        lib.push(name);
+        saveCreativityLibrary(lib);
+    }
+    input.value = '';
+    const list = document.getElementById('creativity-list');
+    closeOpenPanel(list, () => {
+        renderCreativityList();
+        const wrappers = list.querySelectorAll('.entry-wrapper');
+        const newest = wrappers[wrappers.length - 1];
+        if (newest) {
+            newest.classList.add('entry-collapsing');
+            requestAnimationFrame(() => requestAnimationFrame(() => newest.classList.remove('entry-collapsing')));
+        }
+    });
+};
+document.getElementById('creativityInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('creativityAddBtn').click();
+});
+
 document.getElementById('closeExerciseModal3').onclick = () => {
     saveSets();
     showExScreen('ex-screen-exercises');
@@ -2566,7 +2843,7 @@ document.getElementById('closeExerciseModal').onclick = () => {
 
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal']
+        ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal','creativityModal']
             .forEach(id => document.getElementById(id).style.display = 'none');
     }
 });
