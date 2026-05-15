@@ -489,9 +489,8 @@ function applyAutoBump() {
 }
 
 // Call after any data change that could affect category completion.
-// Bumps + saves + re-renders the chart in one go.
 function refreshChartAfterDataChange() {
-    if (applyAutoBump()) saveDayData();
+    saveDayData();
     initChart();
 }
 
@@ -744,7 +743,7 @@ function render() {
         // Hide the number when (a) the user hasn't touched the dot yet, so the
         // default value doesn't clutter the chart, or (b) the value is 0.
         // Showing it requires any interaction — drag or tap, even back to default.
-        if (!cat.touched || percentage === 0) labelText.style.display = 'none';
+        if (!cat.touched || percentage <= 2) labelText.style.display = 'none';
 
         // Hitboxes are kept (so the cursor: grab from CSS still works on
         // hover), but the actual click→drag routing happens at the SVG level
@@ -2984,11 +2983,14 @@ function renumberRfBullets(section) {
         .forEach((b, i) => { b.textContent = (i + 1) + '.'; });
 }
 
+let _rfEnterHandled = false;
+
 function attachRfInputHandlers(section, input) {
     input.addEventListener('input', () => saveCurrentRfSection(section));
 
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
+            _rfEnterHandled = true;
             e.preventDefault();
             saveCurrentRfSection(section);
             const body = document.getElementById('rf-body-' + section);
@@ -3015,6 +3017,23 @@ function attachRfInputHandlers(section, input) {
                 saveCurrentRfSection(section);
                 inputs[Math.max(0, idx - 1)].focus();
             }
+        }
+    });
+
+    // Mobile fallback: Android soft keyboards fire keydown with key:'Unidentified'
+    // but keyup reliably has the correct key. The shared _rfEnterHandled flag
+    // prevents double-firing on desktop (where keydown already handled it).
+    input.addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') {
+            if (!_rfEnterHandled) {
+                saveCurrentRfSection(section);
+                const body = document.getElementById('rf-body-' + section);
+                const inputs = Array.from(body.querySelectorAll('.rf-input'));
+                const idx = inputs.indexOf(input);
+                const newInput = insertRfRowAfter(section, idx);
+                newInput.focus();
+            }
+            _rfEnterHandled = false;
         }
     });
 }
@@ -3836,6 +3855,33 @@ function resetCurrentDay() {
         if (buf === 'reset') {
             buf = '';
             resetCurrentDay();
+        }
+    });
+})();
+
+(function () {
+    let buf = '';
+    let active = false;
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'display:none;position:fixed;inset:0;background:white;z-index:99999;';
+    document.body.appendChild(overlay);
+
+    document.addEventListener('keydown', (e) => {
+        const tag = document.activeElement && document.activeElement.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        buf = (buf + e.key).slice(-5);
+        if (buf === 'white') {
+            buf = '';
+            active = !active;
+            if (active) {
+                overlay.style.display = 'block';
+                document.body.style.cursor = 'none';
+                document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {});
+            } else {
+                overlay.style.display = 'none';
+                document.body.style.cursor = '';
+                document.fullscreenElement && document.exitFullscreen();
+            }
         }
     });
 })();
