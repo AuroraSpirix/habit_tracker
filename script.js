@@ -1818,12 +1818,14 @@ function renderMobilityOtherList() {
         // Long-press to rename
         let pressTimer = null;
         let renameTriggered = false;
+        let pressStartX = 0, pressStartY = 0;
         row.addEventListener('contextmenu', e => e.preventDefault());
         row.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.exercise-delete-btn')) return;
             if (e.target.closest('.mindset-check')) return;
             if (panel.classList.contains('open')) return;
             renameTriggered = false;
+            pressStartX = e.clientX; pressStartY = e.clientY;
             pressTimer = setTimeout(() => {
                 renameTriggered = true;
                 const input = document.createElement('input');
@@ -1851,8 +1853,14 @@ function renderMobilityOtherList() {
                 input.addEventListener('click', e => e.stopPropagation());
             }, 600);
         });
-        row.addEventListener('pointerup', () => clearTimeout(pressTimer));
-        row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+        row.addEventListener('pointermove', (e) => {
+            if (!pressTimer) return;
+            if (Math.abs(e.clientX - pressStartX) > 8 || Math.abs(e.clientY - pressStartY) > 8) {
+                clearTimeout(pressTimer); pressTimer = null;
+            }
+        });
+        row.addEventListener('pointerup', () => { clearTimeout(pressTimer); pressTimer = null; });
+        row.addEventListener('pointercancel', () => { clearTimeout(pressTimer); pressTimer = null; });
 
         const openNotesPanel = () => {
             if (panel.classList.contains('open')) { setTimeout(() => ta.focus(), 50); return; }
@@ -2048,12 +2056,14 @@ function renderCreativityList() {
 
         let pressTimer = null;
         let renameTriggered = false;
+        let pressStartX = 0, pressStartY = 0;
         row.addEventListener('contextmenu', e => e.preventDefault());
         row.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.exercise-delete-btn')) return;
             if (e.target.closest('.mindset-check')) return;
             if (panel.classList.contains('open')) return;
             renameTriggered = false;
+            pressStartX = e.clientX; pressStartY = e.clientY;
             pressTimer = setTimeout(() => {
                 renameTriggered = true;
                 const input = document.createElement('input');
@@ -2081,8 +2091,14 @@ function renderCreativityList() {
                 input.addEventListener('click', e => e.stopPropagation());
             }, 600);
         });
-        row.addEventListener('pointerup', () => clearTimeout(pressTimer));
-        row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+        row.addEventListener('pointermove', (e) => {
+            if (!pressTimer) return;
+            if (Math.abs(e.clientX - pressStartX) > 8 || Math.abs(e.clientY - pressStartY) > 8) {
+                clearTimeout(pressTimer); pressTimer = null;
+            }
+        });
+        row.addEventListener('pointerup', () => { clearTimeout(pressTimer); pressTimer = null; });
+        row.addEventListener('pointercancel', () => { clearTimeout(pressTimer); pressTimer = null; });
 
         const openNotesPanel = () => {
             if (panel.classList.contains('open')) { setTimeout(() => ta.focus(), 50); return; }
@@ -2985,11 +3001,13 @@ function renderJournalList(type) {
             // Long-press to rename
             let pressTimer = null;
             let renameTriggered = false;
+            let pressStartX = 0, pressStartY = 0;
             row.addEventListener('contextmenu', e => e.preventDefault());
             row.addEventListener('pointerdown', (e) => {
                 if (e.target.closest('.exercise-delete-btn')) return;
                 if (panel.classList.contains('open')) return;
                 renameTriggered = false;
+                pressStartX = e.clientX; pressStartY = e.clientY;
                 pressTimer = setTimeout(() => {
                     renameTriggered = true;
                     const input = document.createElement('input');
@@ -3021,8 +3039,14 @@ function renderJournalList(type) {
                     input.addEventListener('click', e => e.stopPropagation());
                 }, 600);
             });
-            row.addEventListener('pointerup', () => clearTimeout(pressTimer));
-            row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+            row.addEventListener('pointermove', (e) => {
+                if (!pressTimer) return;
+                if (Math.abs(e.clientX - pressStartX) > 8 || Math.abs(e.clientY - pressStartY) > 8) {
+                    clearTimeout(pressTimer); pressTimer = null;
+                }
+            });
+            row.addEventListener('pointerup', () => { clearTimeout(pressTimer); pressTimer = null; });
+            row.addEventListener('pointercancel', () => { clearTimeout(pressTimer); pressTimer = null; });
 
             row.onclick = (e) => {
                 if (e.target.closest('.exercise-delete-btn')) return;
@@ -3263,10 +3287,32 @@ function renumberRfBullets(section) {
 let _rfEnterHandled = false;
 
 function attachRfInputHandlers(section, input) {
-    input.addEventListener('input', () => saveCurrentRfSection(section));
+    input.addEventListener('input', () => {
+        if (input.value.endsWith('..')) {
+            input.value = input.value.slice(0, -2);
+            saveCurrentRfSection(section);
+            const body = document.getElementById('rf-body-' + section);
+            const inputs = Array.from(body.querySelectorAll('.rf-input'));
+            const idx = inputs.indexOf(input);
+            const newInput = insertRfRowAfter(section, idx);
+            newInput.focus();
+            return;
+        }
+        saveCurrentRfSection(section);
+    });
 
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
+        if (e.key === '.') {
+            if (input.value.endsWith('.')) {
+                e.preventDefault();
+                input.value = input.value.slice(0, -1);
+                saveCurrentRfSection(section);
+                const body = document.getElementById('rf-body-' + section);
+                const inputs = Array.from(body.querySelectorAll('.rf-input'));
+                const idx = inputs.indexOf(input);
+                insertRfRowAfter(section, idx).focus();
+            }
+        } else if (e.key === 'Enter') {
             _rfEnterHandled = true;
             e.preventDefault();
             saveCurrentRfSection(section);
@@ -3823,12 +3869,14 @@ function renderBookList() {
         // Long-press to rename
         let pressTimer = null;
         let renameTriggered = false;
+        let pressStartX = 0, pressStartY = 0;
         row.addEventListener('contextmenu', e => e.preventDefault());
         row.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.exercise-delete-btn')) return;
             if (e.target.closest('.mindset-check')) return;
             if (panel.classList.contains('open')) return;
             renameTriggered = false;
+            pressStartX = e.clientX; pressStartY = e.clientY;
             pressTimer = setTimeout(() => {
                 renameTriggered = true;
                 const input = document.createElement('input');
@@ -3856,8 +3904,14 @@ function renderBookList() {
                 input.addEventListener('click', e => e.stopPropagation());
             }, 600);
         });
-        row.addEventListener('pointerup', () => clearTimeout(pressTimer));
-        row.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+        row.addEventListener('pointermove', (e) => {
+            if (!pressTimer) return;
+            if (Math.abs(e.clientX - pressStartX) > 8 || Math.abs(e.clientY - pressStartY) > 8) {
+                clearTimeout(pressTimer); pressTimer = null;
+            }
+        });
+        row.addEventListener('pointerup', () => { clearTimeout(pressTimer); pressTimer = null; });
+        row.addEventListener('pointercancel', () => { clearTimeout(pressTimer); pressTimer = null; });
 
         // Open the inline notes panel (if not already open). Reused by both
         // the row click and the checkbox click.
