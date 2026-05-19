@@ -2859,7 +2859,7 @@ document.getElementById('closeExerciseModal').onclick = () => {
 
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal','creativityModal']
+        ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal','creativityModal','musicModal']
             .forEach(id => document.getElementById(id).style.display = 'none');
     }
 });
@@ -4733,7 +4733,31 @@ function savePrayerCount(n) {
 // Full watch URLs (https://www.youtube.com/watch?v=XXXXX) and
 // short URLs (https://youtu.be/XXXXX) both work.
 const YOUTUBE_VIDEOS = [
-    // Example: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/watch?v=gnV-8pkILF0',
+    'https://www.youtube.com/watch?v=FAsrHKXHh4o',
+    'https://www.youtube.com/watch?v=xETEYG-az9E',
+    'https://www.youtube.com/watch?v=OVlayZ2LVYE',
+    'https://www.youtube.com/watch?v=qVdMh98w6_Q',
+    'https://www.youtube.com/watch?v=65A7_eNDcks',
+    'https://www.youtube.com/watch?v=0fStWP79Z5A',
+    'https://www.youtube.com/watch?v=XX5nL9EJiWU',
+    'https://www.youtube.com/watch?v=tKmwR2jo0zw',
+    'https://www.youtube.com/watch?v=MN98FGYo_5c',
+    'https://www.youtube.com/watch?v=RFkE8GIJHp8',
+    'https://www.youtube.com/watch?v=tUNbhYcY9Ik',
+    'https://www.youtube.com/watch?v=UxY6kZxutrs',
+    'https://www.youtube.com/watch?v=oQR7J-6Oh14',
+    'https://www.youtube.com/watch?v=pffI2Lmq00c',
+    'https://www.youtube.com/watch?v=_mfZNpCcdVI',
+    'https://www.youtube.com/watch?v=GJDUWw94Sig',
+    'https://www.youtube.com/watch?v=bmgPIGqL_YM',
+    'https://www.youtube.com/watch?v=TBaXTbtQ_UE',
+    'https://www.youtube.com/watch?v=p_SxDBKaVvY',
+    'https://www.youtube.com/watch?v=SwJ435IW4JQ',
+    'https://www.youtube.com/watch?v=e28jRrYm1nM',
+    'https://www.youtube.com/watch?v=7t4FwxR_ymw',
+    'https://www.youtube.com/watch?v=-lJMxQbeWmE',
+    'https://www.youtube.com/watch?v=M4RpqFzFl14',
 ];
 
 function extractYouTubeId(url) {
@@ -4746,18 +4770,47 @@ function openMusicModal() {
     list.innerHTML = '';
     if (YOUTUBE_VIDEOS.length === 0) {
         list.innerHTML = '<p class="music-empty">No videos added yet.</p>';
-    } else {
-        YOUTUBE_VIDEOS.forEach(url => {
-            const id = extractYouTubeId(url);
-            if (!id) return;
-            const iframe = document.createElement('iframe');
-            iframe.className = 'music-video-frame';
-            iframe.src = 'https://www.youtube.com/embed/' + id;
-            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
-            iframe.allowFullscreen = true;
-            list.appendChild(iframe);
-        });
+        document.getElementById('musicModal').style.display = 'flex';
+        return;
     }
+    YOUTUBE_VIDEOS.forEach(url => {
+        const id = extractYouTubeId(url);
+        if (!id) return;
+
+        const item = document.createElement('div');
+        item.className = 'music-thumb-item';
+
+        const a = document.createElement('a');
+        a.href = 'https://www.youtube.com/watch?v=' + id;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.className = 'music-thumb-link';
+
+        const img = document.createElement('img');
+        img.className = 'music-thumb-img';
+        img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
+        img.loading = 'lazy';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'music-thumb-play';
+        overlay.innerHTML = '&#9654;';
+
+        a.appendChild(img);
+        a.appendChild(overlay);
+
+        const title = document.createElement('div');
+        title.className = 'music-thumb-title';
+        title.textContent = '…';
+
+        item.appendChild(a);
+        item.appendChild(title);
+        list.appendChild(item);
+
+        fetch('https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=' + id + '&format=json')
+            .then(r => r.json())
+            .then(d => { title.textContent = (d.title || '').replace(/\s*\(.*?\)\s*/g, '').trim(); })
+            .catch(() => { title.textContent = ''; });
+    });
     document.getElementById('musicModal').style.display = 'flex';
 }
 
