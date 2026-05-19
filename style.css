@@ -136,7 +136,10 @@ body::before {
     letter-spacing: 0.12em;
     color: var(--text);
     line-height: 1;
+    cursor: pointer;
+    transition: color var(--transition);
 }
+#day-name:hover { color: var(--gold); }
 
 #full-date {
     font-family: var(--font-mono);
@@ -1117,7 +1120,7 @@ button:hover {
 
 .sp-notes-input {
     width: 100%;
-    height: 160px;
+    min-height: 120px;
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--text);
@@ -1127,9 +1130,10 @@ button:hover {
     font-size: 0.82rem;
     line-height: 1.7;
     resize: none;
+    overflow-y: hidden;
     outline: none;
     margin-bottom: 1px;
-    transition: all var(--transition);
+    transition: border-color var(--transition), box-shadow var(--transition);
     letter-spacing: 0.02em;
 }
 
@@ -1140,8 +1144,8 @@ button:hover {
 
 .sp-notes-input::placeholder { color: var(--text-faint); }
 
-.simple-notes { height: 180px; }
-.mindset-notes { height: 200px; }
+.simple-notes { min-height: 180px; }
+.mindset-notes { min-height: 200px; }
 
 .sp-entry-row {
     display: flex;
@@ -1214,14 +1218,15 @@ button:hover {
 }
 
 .inline-notes-panel.open {
-    max-height: 260px;
+    max-height: 2000px;
     opacity: 1;
     padding: 10px;
 }
 
 .inline-notes-panel textarea {
-    height: 80px;
+    min-height: 60px;
     resize: none;
+    overflow-y: hidden;
 }
 
 .sp-entry-topic {
@@ -1351,96 +1356,264 @@ p {
 }
 
 
-/* ─── Recovery sliders ───────────────────────────────────────────────────── */
-.rc-sleep-outer {
+/* ─── Recovery Slider Buttons ────────────────────────────────────────────── */
+.rc-slider-btns {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.rc-btn-slider {
+    position: relative;
+    padding: 13px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: all var(--transition);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 10px 10px 0;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
 }
 
-.rc-slider-label {
+.rc-btn-slider:hover {
+    border-color: var(--gold-dim);
+    background: var(--surface-3);
+}
+
+.rc-btn-slider.dragging { border-color: var(--gold-dim); }
+
+.rc-btn-fill {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 0%;
+    background: linear-gradient(90deg, rgba(201,169,110,0.07) 0%, rgba(201,169,110,0.18) 100%);
+    pointer-events: none;
+    transition: width 0.22s cubic-bezier(0.4,0,0.2,1);
+    z-index: 0;
+}
+
+.rc-btn-slider.dragging .rc-btn-fill { transition: none; }
+
+
+.rc-btn-label {
     font-family: var(--font-mono);
-    font-size: 0.55rem;
+    font-size: 0.68rem;
     letter-spacing: 0.15em;
     color: var(--text-muted);
     text-transform: uppercase;
+    pointer-events: none;
+    position: relative;
+    z-index: 1;
 }
 
-.rc-sleep-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-}
-
-.rc-sleep-label {
-    font-family: var(--font-mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.12em;
-    color: var(--text-faint);
-    flex-shrink: 0;
-    min-width: 12px;
-    text-align: center;
-}
-
-.rc-sleep-range {
-    -webkit-appearance: none;
-    appearance: none;
-    flex: 1;
-    height: 4px;
-    background: var(--surface-3);
-    border: 1px solid var(--border);
-    border-radius: 2px;
-    outline: none;
-    cursor: pointer;
-}
-
-.rc-sleep-range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--gold);
-    cursor: pointer;
-    border: none;
-    box-shadow: 0 0 6px rgba(201,169,110,0.45);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.rc-sleep-range:active::-webkit-slider-thumb {
-    transform: scale(1.15);
-    box-shadow: 0 0 18px rgba(201,169,110,0.6);
-}
-
-.rc-sleep-range::-moz-range-thumb {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--gold);
-    cursor: pointer;
-    border: none;
-    box-shadow: 0 0 6px rgba(201,169,110,0.45);
-}
-
-.rc-sleep-value {
+.rc-btn-value {
     font-family: var(--font-mono);
     font-size: 0.58rem;
-    letter-spacing: 0.18em;
-    color: var(--gold);
-    text-align: center;
-    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    pointer-events: none;
+    position: relative;
+    z-index: 1;
 }
 
-@media (max-width: 480px) {
-    /* Each slider spans both columns so the range input has enough room. */
-    .rc-sleep-outer {
-        grid-column: span 2;
-        padding: 6px 6px 0;
-        gap: 5px;
-    }
+.rc-btn-slider.has-data {
+    border-color: rgba(61,220,132,0.35);
 }
+.rc-btn-slider.has-data .rc-btn-label { color: var(--text-muted); }
+.rc-btn-slider.has-data .rc-btn-value { color: var(--text-faint); }
+.rc-btn-slider.has-data .rc-btn-fill {
+    background: linear-gradient(90deg, rgba(61,220,132,0.15) 0%, rgba(61,220,132,0.28) 100%);
+}
+.rc-btn-slider.has-data:hover { border-color: rgba(61,220,132,0.55); }
+
+#rc-slide-cryo .rc-btn-fill { display: none; }
+#rc-slide-cryo .rc-btn-value { display: none; }
+#rc-slide-cryo.has-data { background: var(--green-dim); }
+#rc-slide-cryo.has-data .rc-btn-label { color: var(--green); }
+
+@media (max-width: 480px) {
+    .rc-btn-label { font-size: 0.55rem; letter-spacing: 0.06em; }
+}
+
+/* ─── Calorie Tracker ────────────────────────────────────────────────────────── */
+.rc-cal-totals-row {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    padding: 6px 0 14px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+}
+.rc-cal-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+.rc-cal-big {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 300;
+    color: var(--text);
+    line-height: 1;
+}
+.rc-cal-small {
+    font-family: var(--font-mono);
+    font-size: 0.48rem;
+    letter-spacing: 0.18em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+}
+.rc-food-add-row {
+    display: flex;
+    gap: 5px;
+    align-items: stretch;
+    padding: 8px 0 16px;
+}
+.rc-food-add-row .ex-add-btn { align-self: stretch; height: auto; }
+.rc-food-name-input { flex: 1; min-width: 0; }
+.rc-food-num-input  {
+    width: 44px;
+    flex: none;
+    text-align: center;
+    padding-left: 0;
+    padding-right: 0;
+    aspect-ratio: 1 / 1;
+}
+/* Hide number spinner arrows */
+.rc-food-num-input::-webkit-outer-spin-button,
+.rc-food-num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rc-food-num-input { -moz-appearance: textfield; }
+.rc-food-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+.rc-food-row:hover { border-color: var(--border-bright); }
+.rc-food-row.rc-food-selected {
+    border-color: rgba(61,220,132,0.35);
+    background: var(--green-dim);
+}
+.rc-food-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    border: 1.5px solid var(--border-bright);
+    background: transparent;
+    flex-shrink: 0;
+    transition: all var(--transition);
+}
+.rc-food-row.rc-food-selected .rc-food-dot {
+    background: var(--green);
+    border-color: var(--green);
+    box-shadow: 0 0 5px rgba(61,220,132,0.4);
+}
+.rc-food-portions {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+.rc-portion-btn {
+    display: none;
+    background: var(--surface-3);
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+    padding: 0;
+}
+.rc-food-portions.expanded .rc-portion-btn { display: flex; }
+.rc-portion-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+.rc-portion-count {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    min-width: 20px;
+    text-align: center;
+    padding: 2px 3px;
+    border-radius: 3px;
+    background: var(--surface-3);
+}
+.rc-food-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+.rc-food-name-label {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rc-food-macros {
+    font-family: var(--font-mono);
+    font-size: 0.56rem;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    margin-left: auto;
+}
+.rc-food-row.rc-food-selected .rc-food-name-label,
+.rc-food-row.rc-food-selected .rc-food-macros { color: var(--green); }
+.rc-food-actions {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-shrink: 0;
+}
+.rc-food-actions .exercise-delete-btn { padding-left: 6px; }
+.rc-food-edit-btn {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    font-size: 0.78rem;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color var(--transition);
+}
+.rc-food-edit-btn:hover { color: var(--gold); }
+.rc-food-edit-row .ex-add-btn { width: 32px; font-size: 0.9rem; }
+.rc-food-edit-row {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    width: 100%;
+}
+.rc-food-edit-row .rc-food-name-input { flex: 1; min-width: 0; }
+.rc-food-edit-row .rc-food-num-input  { width: 44px; flex: none; text-align: center; padding: 11px 0; aspect-ratio: auto; }
+.rc-food-edit-row .ex-add-btn { width: 21px; height: 21px; font-size: 0.65rem; background: none; color: var(--text-faint); }
+.rc-food-edit-row .ex-add-btn:hover { background: none; color: var(--text); transform: none; }
 
 /* ─── Reflection 3-2-1 ─────────────────────────────────────────────────────── */
 .rf-sections {
@@ -1686,3 +1859,139 @@ p {
 #creativity-list .sp-entry-row .sp-entry-topic { color: var(--text-faint); }
 #creativity-list .sp-entry-row:has(.mindset-check.checked) .sp-entry-topic { color: var(--green); }
 #creativity-list .sp-entry-row:hover .sp-entry-topic { color: var(--text); }
+
+/* ─── Mini Popup (weight / prayer) ─────────────────────────────────────────── */
+.mini-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--surface-3);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-md);
+    padding: 16px 20px 12px;
+    z-index: 20000;
+    text-align: center;
+    min-width: 180px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+
+.mini-popup-title {
+    font-family: var(--font-mono);
+    font-size: 0.52rem;
+    letter-spacing: 0.22em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+}
+
+.mini-popup-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.mini-center {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 64px;
+    justify-content: center;
+}
+
+.mini-value {
+    font-family: var(--font-display);
+    font-size: 1.9rem;
+    font-weight: 300;
+    color: var(--text);
+    line-height: 1;
+}
+
+.mini-value--sm {
+    font-size: 1.25rem;
+}
+
+.mini-unit {
+    font-family: var(--font-mono);
+    font-size: 0.5rem;
+    color: var(--text-faint);
+    letter-spacing: 0.12em;
+}
+
+.mini-btn--sm {
+    width: 28px;
+    height: 28px;
+    font-size: 0.95rem;
+}
+
+.mini-popup--prayer {
+    min-width: 150px;
+    padding: 12px 16px 10px;
+}
+
+.mini-btn {
+    background: var(--surface-2);
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+.mini-btn:hover {
+    background: var(--surface-3);
+    border-color: var(--gold-dim);
+    color: var(--gold);
+}
+.mini-btn:active { transform: scale(0.9); }
+
+.mini-close {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 0.52rem;
+    letter-spacing: 0.18em;
+    cursor: pointer;
+    transition: color var(--transition);
+    padding: 2px 6px;
+    text-transform: uppercase;
+}
+.mini-close:hover { color: var(--text); }
+
+/* ─── Music Modal ───────────────────────────────────────────────────────────── */
+.music-videos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    max-height: 60vh;
+    padding-right: 4px;
+}
+
+.music-video-frame {
+    width: 100%;
+    aspect-ratio: 16/9;
+    border: none;
+    border-radius: var(--radius-md);
+    background: #000;
+}
+
+.music-empty {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-align: center;
+    padding: 20px 0;
+}

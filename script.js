@@ -2865,6 +2865,11 @@ window.addEventListener('keydown', (e) => {
 });
 
 
+function autoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
 function openSpiritualModal() {
     openJournalModal('spiritual');
 }
@@ -2974,6 +2979,7 @@ function renderJournalList(type) {
             ta.className = 'sp-notes-input';
             ta.placeholder = 'Notes...';
             ta.value = entry.notes || '';
+            ta.addEventListener('input', () => autoGrow(ta));
 
             const saveEntry = () => {
                 const all = getJournalEntries(type);
@@ -3064,7 +3070,7 @@ function renderJournalList(type) {
                 });
                 panel.classList.add('open');
                 row.classList.add('open');
-                setTimeout(() => ta.focus(), 400);
+                setTimeout(() => { ta.focus(); autoGrow(ta); }, 400);
             };
 
             inner.appendChild(row);
@@ -3104,7 +3110,11 @@ function openJournalNotes(type, idx) {
         }
     );
     showJournalScreen(p + '-screen-notes');
-    setTimeout(() => document.getElementById(p + 'NotesInput').focus(), 50);
+    setTimeout(() => {
+        const notesEl = document.getElementById(p + 'NotesInput');
+        notesEl.focus();
+        autoGrow(notesEl);
+    }, 50);
 }
 
 
@@ -3135,6 +3145,9 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
         if (e.key === 'Enter') document.getElementById(p + 'AddEntryBtn').click();
     });
 
+    const notesInput = document.getElementById(p + 'NotesInput');
+    if (notesInput) notesInput.addEventListener('input', () => autoGrow(notesInput));
+
     const saveNotes = () => {
         const entries = getJournalEntries(type);
         if (activeJournalEntryId !== null && entries[activeJournalEntryId] !== undefined) {
@@ -3156,13 +3169,13 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
 });
 
 
-// ─── Recovery Modal ───────────────────────────────────────────────────────────
+// ─── Recovery Slider Buttons ──────────────────────────────────────────────────
 const RECOVERY_KEY = 'recovery_data';
 
 function formatSleepVal(val) {
     const h = Math.floor(val);
     const m = Math.round((val - h) * 60);
-    return m === 0 ? `${h} HRS` : `${h}:${String(m).padStart(2, '0')} HRS`;
+    return m === 0 ? `${h} hrs` : `${h}:${String(m).padStart(2, '0')} hrs`;
 }
 
 function getRecoveryData() {
@@ -3182,57 +3195,461 @@ function saveRecoveryData(data) {
     Storage.setItem(RECOVERY_KEY, JSON.stringify(all));
 }
 
-function openRecoveryModal() {
-    renderRecoveryButtons();
+const RC_SLIDERS = [
+    {
+        id: 'rc-slide-hydration', key: 'hydration',
+        min: 0, max: 15, step: 1,
+        fmt: v => v === 0 ? '—' : v + (v === 1 ? ' cup' : ' cups'),
+        fromStorage: d => d.hydration != null ? (typeof d.hydration === 'boolean' ? 5 : +d.hydration) : 0,
+    },
+    {
+        id: 'rc-slide-cryo', key: 'cryotherapy',
+        min: 0, max: 1, step: 1,
+        fmt: () => '',
+        fromStorage: d => d.cryotherapy ? 1 : 0,
+        clickOnly: true,
+    },
+    {
+        id: 'rc-slide-calories', key: 'nutrition',
+        min: 0, max: 4000, step: 100,
+        fmt: v => v === 0 ? '—' : v + ' cal',
+        fromStorage: d => d.nutrition != null ? d.nutrition : 0,
+        clickOnly: true,
+        onClick: () => openCalorieScreen(),
+    },
+    {
+        id: 'rc-slide-sleep', key: 'sleep',
+        min: 7, max: 9, step: 0.25,
+        fmt: v => v === 0 ? '—' : formatSleepVal(v),
+        fromStorage: d => d.sleep != null ? d.sleep : 0,
+    },
+];
+
+const _rcValues = {};
+
+function _rcPersist() {
     const data = getRecoveryData();
-    const nutrition = data.nutrition != null ? data.nutrition : 3000;
-    const sleep = data.sleep != null ? data.sleep : 8;
-    document.getElementById('rc-nutrition-range').value = nutrition;
-    document.getElementById('rc-nutrition-value').textContent = nutrition + ' CAL';
-    document.getElementById('rc-sleep-range').value = sleep;
-    document.getElementById('rc-sleep-value').textContent = formatSleepVal(sleep);
-    document.getElementById('recoveryModal').style.display = 'flex';
+    RC_SLIDERS.forEach(cfg => {
+        const v = _rcValues[cfg.key];
+        if (v === undefined) return;
+        if (v === 0) { delete data[cfg.key]; } else { data[cfg.key] = v; }
+    });
+    saveRecoveryData(data);
+    refreshChartAfterDataChange();
 }
 
-function renderRecoveryButtons() {
+function _rcSetUI(cfg, v) {
+    const el = document.getElementById(cfg.id);
+    const fill = el.querySelector('.rc-btn-fill');
+    const valEl = el.querySelector('.rc-btn-value');
+    const pct = v === 0 ? 0 : Math.max(0, ((v - cfg.min) / (cfg.max - cfg.min)) * 100);
+    fill.style.width = pct + '%';
+    valEl.textContent = cfg.fmt(v);
+    el.dataset.empty = v === 0 ? 'true' : 'false';
+    el.classList.toggle('has-data', v !== 0);
+}
+
+function refreshRcUI() {
     const data = getRecoveryData();
-    ['hydration', 'cryotherapy'].forEach(key => {
-        const btn = document.getElementById('rc-btn-' + key);
-        if (btn) btn.classList.toggle('has-data', !!data[key]);
+    RC_SLIDERS.forEach(cfg => {
+        const v = cfg.fromStorage(data);
+        _rcValues[cfg.key] = v;
+        _rcSetUI(cfg, v);
     });
 }
 
-['hydration', 'cryotherapy'].forEach(key => {
-    document.getElementById('rc-btn-' + key).onclick = () => {
-        const data = getRecoveryData();
-        if (data[key]) { delete data[key]; } else { data[key] = true; }
-        saveRecoveryData(data);
-        renderRecoveryButtons();
-        refreshChartAfterDataChange();
-    };
-});
+function openRecoveryModal() {
+    refreshRcUI();
+    // Sync calories from food log (food log is the source of truth)
+    const { cal } = calcFoodTotals();
+    _rcValues['nutrition'] = cal;
+    const calCfg = RC_SLIDERS.find(c => c.key === 'nutrition');
+    if (calCfg) _rcSetUI(calCfg, cal);
+    document.getElementById('recoveryModal').style.display = 'flex';
+}
 
-document.getElementById('rc-nutrition-range').addEventListener('input', () => {
-    const val = parseInt(document.getElementById('rc-nutrition-range').value);
-    document.getElementById('rc-nutrition-value').textContent = val + ' CAL';
-    const data = getRecoveryData();
-    data.nutrition = val;
-    saveRecoveryData(data);
-    refreshChartAfterDataChange();
-});
+(function initRcSliders() {
+    RC_SLIDERS.forEach(cfg => {
+        const el = document.getElementById(cfg.id);
 
-document.getElementById('rc-sleep-range').addEventListener('input', () => {
-    const val = parseFloat(document.getElementById('rc-sleep-range').value);
-    document.getElementById('rc-sleep-value').textContent = formatSleepVal(val);
-    const data = getRecoveryData();
-    data.sleep = val;
-    saveRecoveryData(data);
-    refreshChartAfterDataChange();
-});
+        if (cfg.clickOnly) {
+            el.addEventListener('click', () => {
+                if (cfg.onClick) { cfg.onClick(); return; }
+                const cur = _rcValues[cfg.key] || 0;
+                _rcValues[cfg.key] = cur ? 0 : 1;
+                _rcSetUI(cfg, _rcValues[cfg.key]);
+                _rcPersist();
+            });
+            return;
+        }
+
+        let dragging = false;
+
+        function fromX(clientX) {
+            const r = el.getBoundingClientRect();
+            const ratio = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+            const raw = cfg.min + ratio * (cfg.max - cfg.min);
+            const stepped = Math.round(raw / cfg.step) * cfg.step;
+            return Math.max(cfg.min, Math.min(cfg.max, stepped));
+        }
+
+        el.addEventListener('pointerdown', e => {
+            dragging = true;
+            el.setPointerCapture(e.pointerId);
+            el.classList.add('dragging');
+            const v = fromX(e.clientX);
+            _rcValues[cfg.key] = v;
+            _rcSetUI(cfg, v);
+        });
+        el.addEventListener('pointermove', e => {
+            if (!dragging) return;
+            const v = fromX(e.clientX);
+            _rcValues[cfg.key] = v;
+            _rcSetUI(cfg, v);
+        });
+        el.addEventListener('pointerup', () => {
+            if (!dragging) return;
+            dragging = false;
+            el.classList.remove('dragging');
+            _rcPersist();
+        });
+        el.addEventListener('pointercancel', () => {
+            dragging = false;
+            el.classList.remove('dragging');
+        });
+    });
+})();
 
 document.getElementById('closeRecoveryModal').onclick = () => {
     document.getElementById('recoveryModal').style.display = 'none';
 };
+
+
+// ─── Calorie / Food Tracker ───────────────────────────────────────────────────
+const FOOD_LIBRARY_KEY = 'food_library_v1';
+const FOOD_LOG_KEY     = 'food_log_v1';
+
+function getFoodLibrary() {
+    const raw = Storage.getItem(FOOD_LIBRARY_KEY);
+    return raw ? JSON.parse(raw) : [];
+}
+function saveFoodLibrary(foods) {
+    Storage.setItem(FOOD_LIBRARY_KEY, JSON.stringify(foods));
+}
+function getTodayFoodLog() {
+    const raw = Storage.getItem(FOOD_LOG_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    const day = all[getDateKey(viewDate)];
+    if (!day) return {};
+    // migrate old array format → {id: portions}
+    if (Array.isArray(day)) {
+        const obj = {};
+        day.forEach(id => { obj[id] = 1; });
+        return obj;
+    }
+    return day;
+}
+function setTodayFoodLog(log) {
+    const raw = Storage.getItem(FOOD_LOG_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    const hasAny = Object.values(log).some(v => v > 0);
+    if (hasAny) { all[getDateKey(viewDate)] = log; }
+    else { delete all[getDateKey(viewDate)]; }
+    Storage.setItem(FOOD_LOG_KEY, JSON.stringify(all));
+}
+function calcFoodTotals() {
+    const foods = getFoodLibrary();
+    const log = getTodayFoodLog();
+    let cal = 0, prot = 0;
+    Object.entries(log).forEach(([id, portions]) => {
+        const f = foods.find(x => x.id === id);
+        if (f && portions > 0) { cal += (f.calories || 0) * portions; prot += (f.protein || 0) * portions; }
+    });
+    return { cal, prot };
+}
+
+function syncCaloriesToSlider() {
+    const { cal, prot } = calcFoodTotals();
+    const calEl  = document.getElementById('rc-cal-display');
+    const protEl = document.getElementById('rc-prot-display');
+    if (calEl)  calEl.textContent  = cal;
+    if (protEl) protEl.textContent = prot;
+
+    _rcValues['nutrition'] = cal;
+    const cfg = RC_SLIDERS.find(c => c.key === 'nutrition');
+    if (cfg) _rcSetUI(cfg, cal);
+
+    const data = getRecoveryData();
+    if (cal  > 0) { data.nutrition = cal;  } else { delete data.nutrition; }
+    if (prot > 0) { data.protein   = prot; } else { delete data.protein;   }
+    saveRecoveryData(data);
+    refreshChartAfterDataChange();
+}
+
+function showRcScreen(id) {
+    ['rc-screen-type', 'rc-screen-calories'].forEach(s => {
+        document.getElementById(s).style.display = s === id ? 'block' : 'none';
+    });
+}
+
+function openCalorieScreen() {
+    renderFoodList();
+    showRcScreen('rc-screen-calories');
+}
+
+function renderFoodList() {
+    const list  = document.getElementById('rc-food-list');
+    list.innerHTML = '';
+    const foods = getFoodLibrary();
+    const log   = getTodayFoodLog();
+
+    if (foods.length === 0) {
+        list.innerHTML = '<p class="empty-state">No foods saved yet.</p>';
+    } else {
+        foods.forEach(food => list.appendChild(buildFoodRow(food, log)));
+    }
+    syncCaloriesToSlider();
+}
+
+function fmtPortions(n) {
+    return '×' + (n % 1 === 0 ? String(n) : n.toFixed(1));
+}
+
+function buildFoodRow(food, log) {
+    const portions   = log[food.id] || 0;
+    const isSelected = portions > 0;
+
+    const row = document.createElement('div');
+    row.className = 'rc-food-row' + (isSelected ? ' rc-food-selected' : '');
+
+    const dot = document.createElement('span');
+    dot.className = 'rc-food-dot';
+
+    const info = document.createElement('div');
+    info.className = 'rc-food-info';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'rc-food-name-label';
+    nameEl.textContent = food.name;
+
+    const macrosEl = document.createElement('span');
+    macrosEl.className = 'rc-food-macros';
+    macrosEl.textContent = `${food.calories} cal · ${food.protein}g`;
+
+    info.appendChild(nameEl);
+    info.appendChild(macrosEl);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'rc-food-edit-btn';
+    editBtn.innerHTML = '&#9998;';
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'exercise-delete-btn';
+    delBtn.textContent = '×';
+
+    const actions = document.createElement('div');
+    actions.className = 'rc-food-actions';
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+
+    row.appendChild(dot);
+    row.appendChild(info);
+
+    // Portion control — only in DOM when selected
+    if (isSelected) {
+        const portionCtrl = document.createElement('div');
+        portionCtrl.className = 'rc-food-portions';
+
+        const minusBtn = document.createElement('button');
+        minusBtn.className = 'rc-portion-btn';
+        minusBtn.textContent = '−';
+
+        const countEl = document.createElement('span');
+        countEl.className = 'rc-portion-count';
+        countEl.textContent = fmtPortions(portions);
+
+        const plusBtn = document.createElement('button');
+        plusBtn.className = 'rc-portion-btn';
+        plusBtn.textContent = '+';
+
+        portionCtrl.appendChild(minusBtn);
+        portionCtrl.appendChild(countEl);
+        portionCtrl.appendChild(plusBtn);
+        row.appendChild(portionCtrl);
+
+        let closeTimer = null;
+        const scheduleClose = () => {
+            clearTimeout(closeTimer);
+            closeTimer = setTimeout(() => portionCtrl.classList.remove('expanded'), 1000);
+        };
+
+        // Click badge to toggle expanded
+        portionCtrl.addEventListener('click', e => {
+            e.stopPropagation();
+            portionCtrl.classList.toggle('expanded');
+            if (portionCtrl.classList.contains('expanded')) scheduleClose();
+            else clearTimeout(closeTimer);
+        });
+
+        const applyPortionDelta = (delta) => {
+            const log = getTodayFoodLog();
+            const cur = log[food.id] || 0.5;
+            const next = Math.round((cur + delta) * 10) / 10;
+            if (next <= 0) {
+                delete log[food.id];
+                setTodayFoodLog(log);
+                renderFoodList(); // full re-render to remove selected state
+                return;
+            }
+            log[food.id] = next;
+            setTodayFoodLog(log);
+            countEl.textContent = fmtPortions(next); // update in place
+            syncCaloriesToSlider();
+            scheduleClose(); // reset 1-second timer
+        };
+
+        minusBtn.addEventListener('click', e => { e.stopPropagation(); applyPortionDelta(-0.5); });
+        plusBtn.addEventListener('click',  e => { e.stopPropagation(); applyPortionDelta(+0.5); });
+    }
+
+    row.appendChild(actions);
+
+    row.addEventListener('click', e => {
+        if (e.target.closest('.rc-food-edit-btn') || e.target.closest('.exercise-delete-btn') || e.target.closest('.rc-food-portions')) return;
+        const log = getTodayFoodLog();
+        if (log[food.id]) { delete log[food.id]; } else { log[food.id] = 1; }
+        setTodayFoodLog(log);
+        renderFoodList();
+    });
+
+    editBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        openFoodEditInRow(food, row);
+    });
+
+    delBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (!delBtn.dataset.confirming) {
+            delBtn.dataset.confirming = '1';
+            delBtn.textContent = '?';
+            delBtn.classList.add('confirming');
+            setTimeout(() => {
+                if (delBtn.dataset.confirming) {
+                    delBtn.textContent = '×';
+                    delBtn.classList.remove('confirming');
+                    delete delBtn.dataset.confirming;
+                }
+            }, 2500);
+        } else {
+            const foods = getFoodLibrary();
+            const fi = foods.findIndex(f => f.id === food.id);
+            if (fi !== -1) foods.splice(fi, 1);
+            saveFoodLibrary(foods);
+            const log = getTodayFoodLog();
+            delete log[food.id];
+            setTodayFoodLog(log);
+            renderFoodList();
+        }
+    });
+
+    return row;
+}
+
+function openFoodEditInRow(food, row) {
+    row.innerHTML = '';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'ex-input rc-food-name-input';
+    nameInput.value = food.name;
+    nameInput.placeholder = 'Name';
+
+    const calInput = document.createElement('input');
+    calInput.type = 'number';
+    calInput.className = 'ex-input rc-food-num-input';
+    calInput.value = food.calories || '';
+    calInput.placeholder = 'cal';
+
+    const protInput = document.createElement('input');
+    protInput.type = 'number';
+    protInput.className = 'ex-input rc-food-num-input';
+    protInput.value = food.protein || '';
+    protInput.placeholder = 'g';
+
+    const saveBtn   = document.createElement('button');
+    saveBtn.className = 'ex-add-btn';
+    saveBtn.textContent = '✓';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'exercise-delete-btn';
+    cancelBtn.textContent = '×';
+
+    const editRow = document.createElement('div');
+    editRow.className = 'rc-food-edit-row';
+    editRow.addEventListener('click', e => e.stopPropagation());
+    editRow.appendChild(nameInput);
+    editRow.appendChild(calInput);
+    editRow.appendChild(protInput);
+    const editBtnGroup = document.createElement('div');
+    editBtnGroup.className = 'rc-food-actions';
+    editBtnGroup.appendChild(saveBtn);
+    editBtnGroup.appendChild(cancelBtn);
+    editRow.appendChild(editBtnGroup);
+    row.appendChild(editRow);
+    nameInput.focus();
+
+    const save = () => {
+        const newName = nameInput.value.trim();
+        if (!newName) return;
+        const foods = getFoodLibrary();
+        const f = foods.find(x => x.id === food.id);
+        if (f) {
+            f.name     = newName;
+            f.calories = parseInt(calInput.value)  || 0;
+            f.protein  = parseInt(protInput.value) || 0;
+        }
+        saveFoodLibrary(foods);
+        renderFoodList();
+    };
+
+    saveBtn.addEventListener('click', save);
+    cancelBtn.addEventListener('click', () => renderFoodList());
+    nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); calInput.focus(); } });
+    calInput.addEventListener('keydown',  e => { if (e.key === 'Enter') { e.preventDefault(); protInput.focus(); } });
+    protInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+}
+
+document.getElementById('rcAddFoodBtn').addEventListener('click', () => {
+    const nameInput = document.getElementById('rcFoodName');
+    const calInput  = document.getElementById('rcFoodCal');
+    const protInput = document.getElementById('rcFoodProt');
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    const foods = getFoodLibrary();
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    foods.push({ id, name, calories: parseInt(calInput.value) || 0, protein: parseInt(protInput.value) || 0 });
+    saveFoodLibrary(foods);
+    nameInput.value = '';
+    calInput.value  = '';
+    protInput.value = '';
+    renderFoodList();
+    nameInput.focus();
+});
+
+document.getElementById('rcFoodName').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('rcFoodCal').focus(); });
+document.getElementById('rcFoodCal').addEventListener('keydown',  e => { if (e.key === 'Enter') document.getElementById('rcFoodProt').focus(); });
+document.getElementById('rcFoodProt').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('rcAddFoodBtn').click(); });
+
+document.getElementById('rcCalBack').addEventListener('click', () => {
+    showRcScreen('rc-screen-type');
+});
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('rc-screen-calories').style.display !== 'none') {
+        e.stopPropagation();
+        showRcScreen('rc-screen-type');
+    }
+});
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── REFLECTION ───────────────────────────────────────────────────────────────
@@ -4193,9 +4610,23 @@ function resetCurrentDay() {
 (function () {
     let buf = '';
     let active = false;
+    let wakeLock = null;
     const overlay = document.createElement('div');
     overlay.style.cssText = 'display:none;position:fixed;inset:0;background:white;z-index:99999;';
     document.body.appendChild(overlay);
+
+    async function acquireWakeLock() {
+        if ('wakeLock' in navigator) {
+            try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+        }
+    }
+    function releaseWakeLock() {
+        if (wakeLock) { wakeLock.release(); wakeLock = null; }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (active && document.visibilityState === 'visible') acquireWakeLock();
+    });
 
     document.addEventListener('keydown', (e) => {
         const tag = document.activeElement && document.activeElement.tagName;
@@ -4208,11 +4639,129 @@ function resetCurrentDay() {
                 overlay.style.display = 'block';
                 document.body.style.cursor = 'none';
                 document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {});
+                acquireWakeLock();
             } else {
                 overlay.style.display = 'none';
                 document.body.style.cursor = '';
                 document.fullscreenElement && document.exitFullscreen();
+                releaseWakeLock();
             }
         }
     });
 })();
+
+
+// ─── Weight Popup ─────────────────────────────────────────────────────────────
+// Stored per-day so history is tracked. Opening a day with no recorded weight
+// falls back to the most recent previous entry so the value carries forward.
+const WEIGHT_KEY = 'body_weight_daily';
+
+function getWeightAllDays() {
+    const raw = Storage.getItem(WEIGHT_KEY);
+    return raw ? JSON.parse(raw) : {};
+}
+
+function getWeight() {
+    const all = getWeightAllDays();
+    const today = getDateKey(viewDate);
+    if (all[today] != null) return all[today];
+    // Fall back to most recent past entry
+    const past = Object.keys(all).filter(k => k < today).sort();
+    return past.length ? all[past[past.length - 1]] : 70.0;
+}
+
+function saveWeight(val) {
+    const all = getWeightAllDays();
+    all[getDateKey(viewDate)] = Math.round(val * 10) / 10;
+    Storage.setItem(WEIGHT_KEY, JSON.stringify(all));
+}
+
+(function () {
+    const popup = document.getElementById('weightPopup');
+    const valueEl = document.getElementById('weight-value');
+
+    function refresh() { valueEl.textContent = getWeight().toFixed(1); }
+    function show() { refresh(); popup.style.display = 'block'; }
+    function hide() { popup.style.display = 'none'; }
+
+    document.querySelector('#ex-screen-muscles .ex-title').addEventListener('click', show);
+    document.getElementById('weight-minus').addEventListener('click', () => { saveWeight(getWeight() - 0.5); refresh(); });
+    document.getElementById('weight-plus').addEventListener('click',  () => { saveWeight(getWeight() + 0.5); refresh(); });
+    document.getElementById('weight-close').addEventListener('click', hide);
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && popup.style.display !== 'none') { e.stopPropagation(); hide(); }
+    });
+})();
+
+
+// ─── Prayer Counter ───────────────────────────────────────────────────────────
+const PRAYER_KEY = 'prayer_count';
+
+function getPrayerCount() {
+    const raw = Storage.getItem(PRAYER_KEY);
+    return raw ? (JSON.parse(raw)[getDateKey(viewDate)] || 0) : 0;
+}
+function savePrayerCount(n) {
+    const raw = Storage.getItem(PRAYER_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    if (n > 0) { all[getDateKey(viewDate)] = n; } else { delete all[getDateKey(viewDate)]; }
+    Storage.setItem(PRAYER_KEY, JSON.stringify(all));
+}
+
+(function () {
+    const popup = document.getElementById('prayerPopup');
+    const valueEl = document.getElementById('prayer-value');
+
+    function refresh() { valueEl.textContent = getPrayerCount(); }
+    function show() { refresh(); popup.style.display = 'block'; }
+    function hide() { popup.style.display = 'none'; }
+
+    document.querySelector('#sp-screen-list .ex-title').addEventListener('click', show);
+    document.getElementById('prayer-minus').addEventListener('click', () => { savePrayerCount(Math.max(0, getPrayerCount() - 1)); refresh(); });
+    document.getElementById('prayer-plus').addEventListener('click',  () => { savePrayerCount(getPrayerCount() + 1); refresh(); });
+    document.getElementById('prayer-close').addEventListener('click', hide);
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && popup.style.display !== 'none') { e.stopPropagation(); hide(); }
+    });
+})();
+
+
+// ─── Music Modal ──────────────────────────────────────────────────────────────
+// Paste your YouTube video URLs below, one per line inside the array.
+// Full watch URLs (https://www.youtube.com/watch?v=XXXXX) and
+// short URLs (https://youtu.be/XXXXX) both work.
+const YOUTUBE_VIDEOS = [
+    // Example: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+];
+
+function extractYouTubeId(url) {
+    const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
+}
+
+function openMusicModal() {
+    const list = document.getElementById('music-videos');
+    list.innerHTML = '';
+    if (YOUTUBE_VIDEOS.length === 0) {
+        list.innerHTML = '<p class="music-empty">No videos added yet.</p>';
+    } else {
+        YOUTUBE_VIDEOS.forEach(url => {
+            const id = extractYouTubeId(url);
+            if (!id) return;
+            const iframe = document.createElement('iframe');
+            iframe.className = 'music-video-frame';
+            iframe.src = 'https://www.youtube.com/embed/' + id;
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            iframe.allowFullscreen = true;
+            list.appendChild(iframe);
+        });
+    }
+    document.getElementById('musicModal').style.display = 'flex';
+}
+
+document.getElementById('day-name').addEventListener('click', openMusicModal);
+document.getElementById('closeMusicModal').addEventListener('click', () => {
+    document.getElementById('musicModal').style.display = 'none';
+});

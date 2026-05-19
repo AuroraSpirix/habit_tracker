@@ -124,29 +124,51 @@
         <div class="modal-content exercise-modal-content">
             <div id="rc-screen-type" class="ex-screen">
                 <h3 class="ex-title">RECOVERY</h3>
-                <div class="muscle-grid mindset-type-grid">
-                    <button class="muscle-btn" id="rc-btn-hydration">HYDRATION</button>
-                    <button class="muscle-btn" id="rc-btn-cryotherapy">CRYOTHERAPY</button>
-                    <div class="rc-sleep-outer">
-                        <span class="rc-slider-label">NUTRITION</span>
-                        <div class="rc-sleep-row">
-                            <span class="rc-sleep-label">1k</span>
-                            <input type="range" id="rc-nutrition-range" min="1000" max="4000" step="100" value="3000" class="rc-sleep-range">
-                            <span class="rc-sleep-label">4k</span>
-                        </div>
-                        <div id="rc-nutrition-value" class="rc-sleep-value">3000 CAL</div>
+                <div class="rc-slider-btns">
+                    <div class="rc-btn-slider" id="rc-slide-calories">
+                        <div class="rc-btn-fill"></div>
+                        <span class="rc-btn-label">CALORIES</span>
+                        <span class="rc-btn-value" id="rc-val-calories">—</span>
                     </div>
-                    <div class="rc-sleep-outer">
-                        <span class="rc-slider-label">SLEEP</span>
-                        <div class="rc-sleep-row">
-                            <span class="rc-sleep-label">6</span>
-                            <input type="range" id="rc-sleep-range" min="6" max="10" step="0.25" value="8" class="rc-sleep-range">
-                            <span class="rc-sleep-label">10</span>
-                        </div>
-                        <div id="rc-sleep-value" class="rc-sleep-value">8 HRS</div>
+                    <div class="rc-btn-slider" id="rc-slide-hydration">
+                        <div class="rc-btn-fill"></div>
+                        <span class="rc-btn-label">HYDRATION</span>
+                        <span class="rc-btn-value" id="rc-val-hydration">—</span>
+                    </div>
+                    <div class="rc-btn-slider" id="rc-slide-cryo">
+                        <div class="rc-btn-fill"></div>
+                        <span class="rc-btn-label">CRYOTHERAPY</span>
+                        <span class="rc-btn-value" id="rc-val-cryo">—</span>
+                    </div>
+                    <div class="rc-btn-slider" id="rc-slide-sleep">
+                        <div class="rc-btn-fill"></div>
+                        <span class="rc-btn-label">SLEEP</span>
+                        <span class="rc-btn-value" id="rc-val-sleep">—</span>
                     </div>
                 </div>
                 <button class="ex-close-btn" id="closeRecoveryModal">CLOSE</button>
+            </div>
+
+            <div id="rc-screen-calories" class="ex-screen" style="display:none">
+                <h3 class="ex-title">CALORIES</h3>
+                <div class="rc-cal-totals-row">
+                    <div class="rc-cal-stat">
+                        <span class="rc-cal-big" id="rc-cal-display">0</span>
+                        <span class="rc-cal-small">cal</span>
+                    </div>
+                    <div class="rc-cal-stat">
+                        <span class="rc-cal-big" id="rc-prot-display">0</span>
+                        <span class="rc-cal-small">g protein</span>
+                    </div>
+                </div>
+                <div id="rc-food-list" class="exercise-list"></div>
+                <div class="rc-food-add-row">
+                    <input id="rcFoodName" type="text" placeholder="Food name" class="ex-input rc-food-name-input"/>
+                    <input id="rcFoodCal" type="number" placeholder="cal" class="ex-input rc-food-num-input"/>
+                    <input id="rcFoodProt" type="number" placeholder="g" class="ex-input rc-food-num-input"/>
+                    <button id="rcAddFoodBtn" class="ex-add-btn">+</button>
+                </div>
+                <button class="ex-close-btn" id="rcCalBack">BACK</button>
             </div>
         </div>
     </div>
@@ -259,6 +281,28 @@
         </div>
     </div>
 
+    <div id="weightPopup" class="mini-popup" style="display:none">
+        <div class="mini-popup-title">WEIGHT</div>
+        <div class="mini-popup-row">
+            <button class="mini-btn" id="weight-minus">−</button>
+            <div class="mini-center">
+                <span id="weight-value" class="mini-value">70.0</span><span class="mini-unit">lbs</span>
+            </div>
+            <button class="mini-btn" id="weight-plus">+</button>
+        </div>
+        <button class="mini-close" id="weight-close">CLOSE</button>
+    </div>
+
+    <div id="prayerPopup" class="mini-popup mini-popup--prayer" style="display:none">
+        <div class="mini-popup-title">PRAYERS TODAY</div>
+        <div class="mini-popup-row">
+            <button class="mini-btn mini-btn--sm" id="prayer-minus">−</button>
+            <span id="prayer-value" class="mini-value mini-value--sm">0</span>
+            <button class="mini-btn mini-btn--sm" id="prayer-plus">+</button>
+        </div>
+        <button class="mini-close" id="prayer-close">CLOSE</button>
+    </div>
+
     <div id="creativityModal" class="modal">
         <div class="modal-content exercise-modal-content">
             <div id="cr-screen-list" class="ex-screen">
@@ -269,6 +313,16 @@
                     <button id="creativityAddBtn" class="ex-add-btn">+</button>
                 </div>
                 <button class="ex-close-btn" id="closeCreativityModal">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="musicModal" class="modal">
+        <div class="modal-content exercise-modal-content">
+            <div class="ex-screen">
+                <h3 class="ex-title">MUSIC</h3>
+                <div id="music-videos" class="music-videos-list"></div>
+                <button class="ex-close-btn" id="closeMusicModal">CLOSE</button>
             </div>
         </div>
     </div>
