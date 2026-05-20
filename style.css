@@ -434,9 +434,12 @@ button:hover {
     -webkit-backdrop-filter: blur(8px);
     z-index: 1000;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     padding: 20px;
+    overflow-y: auto;
+    scrollbar-width: none;
 }
+.modal::-webkit-scrollbar { display: none; }
 
 .modal-content {
     background: var(--surface);
@@ -444,13 +447,12 @@ button:hover {
     border-radius: var(--radius-xl);
     width: 100%;
     max-width: 480px;
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
     overflow-x: hidden;
     text-align: center;
     animation: fadeScale 0.24s cubic-bezier(0.16,1,0.3,1);
     box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px var(--border-bright);
     scrollbar-width: none;
+    margin: auto 0;
 }
 .modal-content::-webkit-scrollbar { display: none; }
 
@@ -578,7 +580,10 @@ button:hover {
 
 #noteArea {
     width: 100%;
-    height: 180px;
+    min-height: 180px;
+    height: auto;
+    field-sizing: content;
+    overflow-y: hidden;
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--text);
@@ -1121,6 +1126,8 @@ button:hover {
 .sp-notes-input {
     width: 100%;
     min-height: 120px;
+    height: auto;
+    field-sizing: content;
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--text);
@@ -1146,6 +1153,35 @@ button:hover {
 
 .simple-notes { min-height: 180px; }
 .mindset-notes { min-height: 200px; }
+
+.ex-notes-editable {
+    width: 100%;
+    min-height: 200px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.7;
+    outline: none;
+    margin-bottom: 1px;
+    transition: border-color var(--transition), box-shadow var(--transition);
+    letter-spacing: 0.02em;
+    word-break: break-word;
+    box-sizing: border-box;
+    text-align: left;
+    cursor: text;
+}
+.ex-notes-editable:focus {
+    border-color: var(--gold-dim);
+    box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.ex-notes-editable > div {
+    padding-left: 1.2ch;
+    text-indent: -1.2ch;
+}
 
 .sp-entry-row {
     display: flex;
@@ -1225,6 +1261,8 @@ button:hover {
 
 .inline-notes-panel textarea {
     min-height: 60px;
+    height: auto;
+    field-sizing: content;
     resize: none;
     overflow-y: hidden;
 }
@@ -1435,10 +1473,28 @@ p {
 }
 .rc-btn-slider.has-data:hover { border-color: rgba(61,220,132,0.55); }
 
+.rc-cryo-pair {
+    display: flex;
+    gap: 8px;
+}
+.rc-cryo-pair .rc-btn-slider {
+    flex: 1;
+    min-width: 0;
+}
+.rc-cryo-pair .rc-btn-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+}
+
 #rc-slide-cryo .rc-btn-fill { display: none; }
 #rc-slide-cryo .rc-btn-value { display: none; }
 #rc-slide-cryo.has-data { background: var(--green-dim); }
 #rc-slide-cryo.has-data .rc-btn-label { color: var(--green); }
+
+#rc-slide-creatine .rc-btn-fill { display: none; }
+#rc-slide-creatine .rc-btn-value { display: none; }
+#rc-slide-creatine.has-data { background: var(--green-dim); }
+#rc-slide-creatine.has-data .rc-btn-label { color: var(--green); }
 
 @media (max-width: 480px) {
     .rc-btn-label { font-size: 0.55rem; letter-spacing: 0.06em; }
@@ -1807,7 +1863,7 @@ p {
 
 .rf-input-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     border-bottom: 1px solid var(--border);
     transition: border-color var(--transition);
@@ -1820,6 +1876,7 @@ p {
     font-size: 0.65rem;
     color: var(--text-faint);
     flex-shrink: 0;
+    padding-top: 7px;
 }
 
 .rf-input {
@@ -1829,10 +1886,16 @@ p {
     color: var(--text);
     font-family: var(--font-mono);
     font-size: 0.72rem;
+    line-height: 1.5;
     padding: 6px 2px;
     outline: none;
     user-select: text;
     -webkit-user-select: text;
+    resize: none;
+    overflow: hidden;
+    field-sizing: content;
+    word-break: break-word;
+    min-height: 0;
 }
 
 /* ─── Mindfulness clock ────────────────────────────────────────────────────── */
@@ -2087,6 +2150,44 @@ p {
     text-transform: uppercase;
 }
 .mini-close:hover { color: var(--text); }
+
+/* ─── Gym Timer ─────────────────────────────────────────────────────────────── */
+.gym-timer {
+    display: none;
+    position: fixed;
+    z-index: 9000;
+    bottom: 90px;
+    right: 20px;
+    background: var(--surface);
+    border: 1px solid var(--gold-dim);
+    border-radius: var(--radius-md);
+    padding: 10px 16px 10px;
+    touch-action: none;
+    user-select: none;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.55), 0 0 0 1px var(--border-bright);
+    text-align: center;
+    min-width: 88px;
+    cursor: grab;
+}
+.gym-timer:active { cursor: grabbing; }
+
+#gymTimerDisplay {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 1.6rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--gold);
+    line-height: 1;
+}
+#gymTimerDisplay.gym-timer-done {
+    animation: timerFlash 0.6s ease-in-out infinite alternate;
+}
+@keyframes timerFlash {
+    from { opacity: 1; }
+    to   { opacity: 0.25; }
+}
+
 
 /* ─── Music Modal ───────────────────────────────────────────────────────────── */
 #musicModal .modal-content {

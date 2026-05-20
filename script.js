@@ -454,7 +454,7 @@ function isCategoryCompleted(catName) {
         if (!raw) return false;
         const all = JSON.parse(raw);
         const day = all[getDateKey(viewDate)] || {};
-        return !!(day.hydration || day.cryotherapy || day.nutrition != null || day.sleep != null);
+        return !!(day.hydration || day.cryotherapy || day.creatine || day.nutrition != null || day.sleep != null);
     }
     if (catName === 'Mindfulness') {
         return getMfMinutes() > 0;
@@ -524,7 +524,7 @@ function makeTitleEditable(titleEl, getValue, onSave) {
         const parent = titleEl.parentNode;
         parent.replaceChild(input, titleEl);
         input.focus();
-        input.select();
+        input.selectionStart = input.selectionEnd = input.value.length;
 
         let finished = false;
         const commit = (save) => {
@@ -1256,7 +1256,7 @@ function openNoteModal(index) {
     noteTitle.textContent = cat.name.toUpperCase() + " NOTES";
     noteArea.value = cat.note || "";
     noteModal.style.display = 'flex';
-    setTimeout(() => noteArea.focus(), 50);
+    setTimeout(() => { noteArea.focus(); autoGrow(noteArea); }, 50);
 }
 
 document.getElementById('closeNoteModal').onclick = () => {
@@ -1406,6 +1406,7 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
             dragging = false;
             sliderDecided = false;
             try { wrap.releasePointerCapture && wrap.releasePointerCapture(e.pointerId); } catch (_) {}
+            refreshChartAfterDataChange();
         };
 
         wrap.addEventListener('pointerdown', onPointerDown);
@@ -1523,6 +1524,7 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
                 setMixerMode(newMode);
                 renderSinsMixer();
                 _preRenderAdjacent();
+                refreshChartAfterDataChange();
                 setPos(0);
                 setTimeout(() => { window.__mixerSwipeActive = false; }, 0);
             });
@@ -2218,7 +2220,7 @@ function openSimpleScreen(type) {
     const notes = getMobilitySimpleNotes();
     document.getElementById('exSimpleNotes').value = notes[getMobilitySimpleKey(type)] || '';
     showExScreen('ex-screen-simple');
-    setTimeout(() => document.getElementById('exSimpleNotes').focus(), 50);
+    setTimeout(() => { const ta = document.getElementById('exSimpleNotes'); ta.focus(); autoGrow(ta); }, 50);
 }
 
 
@@ -2279,7 +2281,7 @@ function renderExerciseList() {
         meta.className = 'exercise-row-meta';
         if (sets && sets.some(s => s.weight || s.reps)) {
             meta.textContent = sets.filter(s => s.weight || s.reps)
-                .map(s => `${s.weight||'?'}kg × ${s.reps||'?'}`)
+                .map(s => `${s.weight||'?'}lbs × ${s.reps||'?'}`)
                 .join('  ');
         }
 
@@ -2615,7 +2617,7 @@ function renderSets() {
         const weightInput = document.createElement('input');
         weightInput.type = 'number';
         weightInput.className = 'set-input';
-        weightInput.placeholder = 'kg';
+        weightInput.placeholder = 'lbs';
         weightInput.value = saved[i]?.weight || '';
         weightInput.id = `set-weight-${i}`;
 
@@ -2682,19 +2684,32 @@ function openExerciseNotesScreen(exercise) {
         (newName) => {
             renameExercise(activeMuscle, activeExercise, newName);
             activeExercise = newName;
+            document.getElementById('ex-exercise-title').textContent = newName.toUpperCase();
+            renderExerciseList();
         }
     );
 
     const notes = getExerciseNotes();
     const rawNote = notes[getExerciseNoteKey(activeMuscle, exercise)] || '';
-    document.getElementById('exNotesInput').value = rawNote
-        ? rawNote.split('\n').map(l => l && !l.startsWith('• ') ? '• ' + l : l).join('\n')
-        : '• ';
+    const lines = rawNote
+        ? rawNote.split('\n').map(l => l && !l.startsWith('• ') ? '• ' + l : l)
+        : ['• '];
+    const el = document.getElementById('exNotesInput');
+    el.innerHTML = '';
+    lines.forEach(line => {
+        const div = document.createElement('div');
+        div.textContent = line;
+        el.appendChild(div);
+    });
     showExScreen('ex-screen-ex-notes');
     setTimeout(() => {
-        const ta = document.getElementById('exNotesInput');
-        ta.focus();
-        ta.selectionStart = ta.selectionEnd = ta.value.length;
+        el.focus();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
     }, 50);
 }
 
@@ -2765,19 +2780,28 @@ function renameExercise(muscle, oldName, newName) {
 
 function saveExerciseNote() {
     const notes = getExerciseNotes();
-    const value = document.getElementById('exNotesInput').value.trim();
+    const value = document.getElementById('exNotesInput').innerText.trim();
     notes[getExerciseNoteKey(activeMuscle, activeExercise)] =
         /^[•\s]*$/.test(value) ? '' : value;
     saveExerciseNotes(notes);
 }
 
+try { document.execCommand('defaultParagraphSeparator', false, 'div'); } catch (_) {}
+
 document.getElementById('exNotesInput').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    const ta = e.target;
-    const start = ta.selectionStart;
-    ta.value = ta.value.slice(0, start) + '\n• ' + ta.value.slice(ta.selectionEnd);
-    ta.selectionStart = ta.selectionEnd = start + 3;
+    document.execCommand('insertParagraph', false, null);
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    let lineDiv = range.startContainer;
+    if (lineDiv.nodeType === Node.TEXT_NODE) lineDiv = lineDiv.parentNode;
+    const container = document.getElementById('exNotesInput');
+    while (lineDiv && lineDiv.parentNode !== container) lineDiv = lineDiv.parentNode;
+    if (lineDiv && !lineDiv.textContent.startsWith('• ')) {
+        document.execCommand('insertText', false, '• ');
+    }
 });
 
 document.getElementById('closeExerciseModal5').onclick = () => {
@@ -2848,6 +2872,7 @@ document.getElementById('creativityInput').addEventListener('keydown', e => {
 
 document.getElementById('closeExerciseModal3').onclick = () => {
     saveSets();
+    renderExerciseList();
     showExScreen('ex-screen-exercises');
 };
 
@@ -2869,6 +2894,11 @@ function autoGrow(el) {
     el.style.height = 'auto';
     el.style.height = el.scrollHeight + 'px';
 }
+
+['noteArea', 'exSimpleNotes', 'msBookNotes', 'avoidedNotes'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => autoGrow(el));
+});
 
 function openSpiritualModal() {
     openJournalModal('spiritual');
@@ -3186,7 +3216,7 @@ function getRecoveryData() {
 function saveRecoveryData(data) {
     const raw = Storage.getItem(RECOVERY_KEY);
     const all = raw ? JSON.parse(raw) : {};
-    const hasAny = data.nutrition != null || data.hydration || data.cryotherapy || data.sleep != null;
+    const hasAny = data.nutrition != null || data.hydration || data.cryotherapy || data.creatine || data.sleep != null;
     if (hasAny) {
         all[getDateKey(viewDate)] = data;
     } else {
@@ -3207,6 +3237,13 @@ const RC_SLIDERS = [
         min: 0, max: 1, step: 1,
         fmt: () => '',
         fromStorage: d => d.cryotherapy ? 1 : 0,
+        clickOnly: true,
+    },
+    {
+        id: 'rc-slide-creatine', key: 'creatine',
+        min: 0, max: 1, step: 1,
+        fmt: () => '',
+        fromStorage: d => d.creatine ? 1 : 0,
         clickOnly: true,
     },
     {
@@ -3590,13 +3627,6 @@ function buildFoodRow(food, log) {
     handle.textContent = '⠿';
     attachFoodDragHandlers(handle, row, 'rc-food-list');
 
-    const dot = makeCatPicker(food.category || 'B', (cat) => {
-        const foods = getFoodLibrary();
-        const f = foods.find(x => x.id === food.id);
-        if (f) { f.category = cat; saveFoodLibrary(foods); }
-    });
-    dot.addEventListener('click', e => e.stopPropagation());
-
     const info = document.createElement('div');
     info.className = 'rc-food-info';
 
@@ -3611,21 +3641,7 @@ function buildFoodRow(food, log) {
     info.appendChild(nameEl);
     info.appendChild(macrosEl);
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'rc-food-edit-btn';
-    editBtn.innerHTML = '&#9998;';
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'exercise-delete-btn';
-    delBtn.textContent = '×';
-
-    const actions = document.createElement('div');
-    actions.className = 'rc-food-actions';
-    actions.appendChild(editBtn);
-    actions.appendChild(delBtn);
-
     row.appendChild(handle);
-    row.appendChild(dot);
     row.appendChild(info);
 
     // Portion control — only in DOM when selected
@@ -3685,10 +3701,8 @@ function buildFoodRow(food, log) {
         plusBtn.addEventListener('click',  e => { e.stopPropagation(); applyPortionDelta(+0.5); });
     }
 
-    row.appendChild(actions);
-
     row.addEventListener('click', e => {
-        if (e.target.closest('.rc-food-edit-btn') || e.target.closest('.exercise-delete-btn') || e.target.closest('.rc-food-portions') || e.target.closest('.rc-drag-handle') || e.target.closest('.rc-cat-picker-wrap')) return;
+        if (e.target.closest('.rc-food-portions') || e.target.closest('.rc-drag-handle')) return;
         const log = getTodayFoodLog();
         if (log[food.id]) {
             // Deselect — keep row visible so it can be re-selected; disappears on next open
@@ -3706,40 +3720,10 @@ function buildFoodRow(food, log) {
         }
     });
 
-    editBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        openFoodEditInRow(food, row);
-    });
-
-    delBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        if (!delBtn.dataset.confirming) {
-            delBtn.dataset.confirming = '1';
-            delBtn.textContent = '?';
-            delBtn.classList.add('confirming');
-            setTimeout(() => {
-                if (delBtn.dataset.confirming) {
-                    delBtn.textContent = '×';
-                    delBtn.classList.remove('confirming');
-                    delete delBtn.dataset.confirming;
-                }
-            }, 2500);
-        } else {
-            const foods = getFoodLibrary();
-            const fi = foods.findIndex(f => f.id === food.id);
-            if (fi !== -1) foods.splice(fi, 1);
-            saveFoodLibrary(foods);
-            const log = getTodayFoodLog();
-            delete log[food.id];
-            setTodayFoodLog(log);
-            renderFoodList();
-        }
-    });
-
     return row;
 }
 
-function openFoodEditInRow(food, row) {
+function openFoodEditInRow(food, row, onDone) {
     row.innerHTML = '';
 
     const nameInput = document.createElement('input');
@@ -3797,11 +3781,11 @@ function openFoodEditInRow(food, row) {
             f.category = catPicker.getCat();
         }
         saveFoodLibrary(foods);
-        renderFoodList();
+        (onDone || renderFoodList)();
     };
 
     saveBtn.addEventListener('click', save);
-    cancelBtn.addEventListener('click', () => renderFoodList());
+    cancelBtn.addEventListener('click', () => (onDone || renderFoodList)());
     nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); calInput.focus(); } });
     calInput.addEventListener('keydown',  e => { if (e.key === 'Enter') { e.preventDefault(); protInput.focus(); } });
     protInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
@@ -3852,7 +3836,10 @@ document.getElementById('rc-category-grid').addEventListener('click', e => {
     if (btn) openCatFoodScreen(btn.dataset.cat);
 });
 
+let _activeCat = 'B';
+
 function openCatFoodScreen(cat) {
+    _activeCat = cat;
     document.getElementById('rc-cat-title').textContent = FOOD_CAT_NAMES[cat] || cat;
     const list = document.getElementById('rc-cat-food-list');
     list.innerHTML = '';
@@ -3864,7 +3851,6 @@ function openCatFoodScreen(cat) {
             const log = getTodayFoodLog();
             const row = document.createElement('div');
             row.className = 'rc-food-row' + (log[food.id] ? ' rc-food-selected' : '');
-
             row.dataset.foodId = food.id;
 
             const handle = document.createElement('span');
@@ -3872,8 +3858,13 @@ function openCatFoodScreen(cat) {
             handle.textContent = '⠿';
             attachFoodDragHandlers(handle, row, 'rc-cat-food-list');
 
-            const dot = document.createElement('span');
-            dot.className = 'rc-food-dot';
+            const dot = makeCatPicker(food.category || 'B', (newCat) => {
+                const foods = getFoodLibrary();
+                const f = foods.find(x => x.id === food.id);
+                if (f) { f.category = newCat; saveFoodLibrary(foods); }
+                openCatFoodScreen(_activeCat);
+            });
+            dot.addEventListener('click', e => e.stopPropagation());
 
             const info = document.createElement('div');
             info.className = 'rc-food-info';
@@ -3886,12 +3877,26 @@ function openCatFoodScreen(cat) {
             info.appendChild(nameEl);
             info.appendChild(macrosEl);
 
+            const editBtn = document.createElement('button');
+            editBtn.className = 'rc-food-edit-btn';
+            editBtn.innerHTML = '&#9998;';
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'exercise-delete-btn';
+            delBtn.textContent = '×';
+
+            const actions = document.createElement('div');
+            actions.className = 'rc-food-actions';
+            actions.appendChild(editBtn);
+            actions.appendChild(delBtn);
+
             row.appendChild(handle);
             row.appendChild(dot);
             row.appendChild(info);
+            row.appendChild(actions);
 
             row.addEventListener('click', e => {
-                if (e.target.closest('.rc-drag-handle')) return;
+                if (e.target.closest('.rc-drag-handle') || e.target.closest('.rc-food-edit-btn') || e.target.closest('.exercise-delete-btn') || e.target.closest('.rc-cat-picker-wrap')) return;
                 const log = getTodayFoodLog();
                 const wasSelected = !!log[food.id];
                 if (wasSelected) { delete log[food.id]; } else { log[food.id] = 1; }
@@ -3904,6 +3909,37 @@ function openCatFoodScreen(cat) {
                     syncCaloriesToSlider();
                 }
             });
+
+            editBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                openFoodEditInRow(food, row, () => openCatFoodScreen(_activeCat));
+            });
+
+            delBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                if (!delBtn.dataset.confirming) {
+                    delBtn.dataset.confirming = '1';
+                    delBtn.textContent = '?';
+                    delBtn.classList.add('confirming');
+                    setTimeout(() => {
+                        if (delBtn.dataset.confirming) {
+                            delBtn.textContent = '×';
+                            delBtn.classList.remove('confirming');
+                            delete delBtn.dataset.confirming;
+                        }
+                    }, 2500);
+                } else {
+                    const foods = getFoodLibrary();
+                    const fi = foods.findIndex(f => f.id === food.id);
+                    if (fi !== -1) foods.splice(fi, 1);
+                    saveFoodLibrary(foods);
+                    const log = getTodayFoodLog();
+                    delete log[food.id];
+                    setTodayFoodLog(log);
+                    openCatFoodScreen(_activeCat);
+                }
+            });
+
             list.appendChild(row);
         });
     }
@@ -4062,8 +4098,8 @@ function insertRfRowAfter(section, idx) {
     row.className = 'rf-input-row';
     const bullet = document.createElement('span');
     bullet.className = 'rf-bullet';
-    const input = document.createElement('input');
-    input.type = 'text';
+    const input = document.createElement('textarea');
+    input.rows = 1;
     input.className = 'rf-input';
     row.appendChild(bullet);
     row.appendChild(input);
@@ -4086,8 +4122,8 @@ function renderRfSection(section, values) {
         const bullet = document.createElement('span');
         bullet.className = 'rf-bullet';
         bullet.textContent = (i + 1) + '.';
-        const input = document.createElement('input');
-        input.type = 'text';
+        const input = document.createElement('textarea');
+        input.rows = 1;
         input.className = 'rf-input';
         input.value = val;
         row.appendChild(bullet);
@@ -4346,11 +4382,17 @@ document.getElementById('mf-breath-slider').addEventListener('input', () => {
     document.getElementById('mf-breath-val').textContent = val;
     saveMfBreathing(val);
 });
+document.getElementById('mf-breath-slider').addEventListener('change', () => {
+    refreshChartAfterDataChange();
+});
 
 document.getElementById('mf-focus-slider').addEventListener('input', () => {
     const val = parseInt(document.getElementById('mf-focus-slider').value);
     document.getElementById('mf-focus-val').textContent = val;
     saveMfFocus(val);
+});
+document.getElementById('mf-focus-slider').addEventListener('change', () => {
+    refreshChartAfterDataChange();
 });
 
 initMfClock();
@@ -4669,11 +4711,12 @@ function openBookNotes(item) {
         (newName) => {
             renameMindsetItem(activeMindsetType, activeBook, newName);
             activeBook = newName;
+            renderBookList();
         }
     );
 
     showMsScreen('ms-screen-notes');
-    setTimeout(() => document.getElementById('msBookNotes').focus(), 50);
+    setTimeout(() => { const ta = document.getElementById('msBookNotes'); ta.focus(); autoGrow(ta); }, 50);
 }
 
 // Rename a mindset library item (book/video/podcast/conversation) and migrate
@@ -4794,7 +4837,7 @@ function openAvoidedModal(activity) {
     }
     document.getElementById('avoidedNotes').value = notesText;
     document.getElementById('avoidedModal').style.display = 'flex';
-    setTimeout(() => document.getElementById('avoidedNotes').focus(), 50);
+    setTimeout(() => { const ta = document.getElementById('avoidedNotes'); ta.focus(); autoGrow(ta); }, 50);
 }
 
 function closeAvoidedModal() {
@@ -5095,3 +5138,95 @@ document.getElementById('day-name').addEventListener('click', openMusicModal);
 document.getElementById('closeMusicModal').addEventListener('click', () => {
     document.getElementById('musicModal').style.display = 'none';
 });
+
+// ─── Gym Timer ────────────────────────────────────────────────────────────────
+(function () {
+    const DURATION = 120;
+    let remaining = DURATION;
+    let interval = null;
+
+    const timerEl  = document.getElementById('gymTimer');
+    const displayEl = document.getElementById('gymTimerDisplay');
+
+    function fmt(s) {
+        return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function updateDisplay() {
+        displayEl.textContent = fmt(remaining);
+        displayEl.classList.toggle('gym-timer-done', remaining === 0);
+    }
+
+    function startCountdown() {
+        if (interval) clearInterval(interval);
+        interval = setInterval(() => {
+            if (remaining <= 0) {
+                clearInterval(interval); interval = null;
+                updateDisplay();
+                return;
+            }
+            remaining--;
+            updateDisplay();
+        }, 1000);
+    }
+
+    function reset() {
+        if (interval) clearInterval(interval);
+        interval = null;
+        remaining = DURATION;
+        displayEl.classList.remove('gym-timer-done');
+        updateDisplay();
+        startCountdown();
+    }
+
+    function openTimer() {
+        timerEl.style.display = 'block';
+        reset();
+    }
+
+    // ── Drag + click ─────────────────────────────────────────────────────────
+    let dragActive = false, didDrag = false;
+    let startX, startY, originLeft, originTop;
+
+    timerEl.addEventListener('pointerdown', e => {
+        dragActive = true; didDrag = false;
+        const rect = timerEl.getBoundingClientRect();
+        timerEl.style.left   = rect.left + 'px';
+        timerEl.style.top    = rect.top  + 'px';
+        timerEl.style.right  = 'auto';
+        timerEl.style.bottom = 'auto';
+        originLeft = rect.left; originTop = rect.top;
+        startX = e.clientX;    startY = e.clientY;
+        timerEl.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    });
+
+    timerEl.addEventListener('pointermove', e => {
+        if (!dragActive) return;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag = true;
+        timerEl.style.left = (originLeft + dx) + 'px';
+        timerEl.style.top  = (originTop  + dy) + 'px';
+    });
+
+    timerEl.addEventListener('pointerup', () => {
+        if (!dragActive) return;
+        dragActive = false;
+        if (!didDrag) { reset(); return; }
+        // Dismiss if dropped over the muscle title
+        const title = document.getElementById('ex-muscle-title');
+        const tr = timerEl.getBoundingClientRect();
+        const lr = title.getBoundingClientRect();
+        const overlaps = tr.left < lr.right && tr.right > lr.left &&
+                         tr.top  < lr.bottom && tr.bottom > lr.top;
+        if (overlaps) {
+            if (interval) clearInterval(interval);
+            interval = null;
+            timerEl.style.display = 'none';
+        }
+    });
+
+    document.getElementById('ex-muscle-title').addEventListener('click', openTimer);
+
+    updateDisplay();
+})();

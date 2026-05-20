@@ -55,7 +55,7 @@
             </div>
             <div id="ex-screen-ex-notes" class="ex-screen hidden">
                 <h3 class="ex-title editable-title" id="ex-notes-title">EXERCISE</h3>
-                <textarea id="exNotesInput" placeholder="Notes for this exercise..." class="sp-notes-input mindset-notes"></textarea>
+                <div id="exNotesInput" contenteditable="true" class="ex-notes-editable"></div>
                 <button class="ex-close-btn" id="closeExerciseModal5">BACK</button>
             </div>
             <div id="ex-screen-simple" class="ex-screen hidden">
@@ -135,10 +135,17 @@
                         <span class="rc-btn-label">HYDRATION</span>
                         <span class="rc-btn-value" id="rc-val-hydration">—</span>
                     </div>
-                    <div class="rc-btn-slider" id="rc-slide-cryo">
-                        <div class="rc-btn-fill"></div>
-                        <span class="rc-btn-label">CRYOTHERAPY</span>
-                        <span class="rc-btn-value" id="rc-val-cryo">—</span>
+                    <div class="rc-cryo-pair">
+                        <div class="rc-btn-slider" id="rc-slide-cryo">
+                            <div class="rc-btn-fill"></div>
+                            <span class="rc-btn-label">COLD SHOWER</span>
+                            <span class="rc-btn-value"></span>
+                        </div>
+                        <div class="rc-btn-slider" id="rc-slide-creatine">
+                            <div class="rc-btn-fill"></div>
+                            <span class="rc-btn-label">CREATINE</span>
+                            <span class="rc-btn-value"></span>
+                        </div>
                     </div>
                     <div class="rc-btn-slider" id="rc-slide-sleep">
                         <div class="rc-btn-fill"></div>
@@ -352,6 +359,10 @@
             </div>
         </div>
     </div>
+
+<div id="gymTimer" class="gym-timer">
+    <span id="gymTimerDisplay">2:00</span>
+</div>
 
 <script src="script.js"></script>
 </body>
