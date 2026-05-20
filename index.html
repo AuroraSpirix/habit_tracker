@@ -150,11 +150,10 @@
             </div>
 
             <div id="rc-screen-calories" class="ex-screen" style="display:none">
-                <h3 class="ex-title">CALORIES</h3>
                 <div class="rc-cal-totals-row">
                     <div class="rc-cal-stat">
                         <span class="rc-cal-big" id="rc-cal-display">0</span>
-                        <span class="rc-cal-small">cal</span>
+                        <span class="rc-cal-small">calories</span>
                     </div>
                     <div class="rc-cal-stat">
                         <span class="rc-cal-big" id="rc-prot-display">0</span>
@@ -162,13 +161,40 @@
                     </div>
                 </div>
                 <div id="rc-food-list" class="exercise-list"></div>
+                <div class="rc-bottom-btns">
+                    <button id="rcViewPastBtn" class="rc-bottom-btn">VIEW PAST FOODS</button>
+                    <button id="rcOpenAddFoodBtn" class="rc-bottom-btn rc-bottom-btn--add">ADD FOOD</button>
+                </div>
+                <button class="ex-close-btn" id="rcCalBack">BACK</button>
+            </div>
+
+            <div id="rc-screen-add-food" class="ex-screen" style="display:none">
+                <h3 class="ex-title">ADD FOOD</h3>
                 <div class="rc-food-add-row">
                     <input id="rcFoodName" type="text" placeholder="Food name" class="ex-input rc-food-name-input"/>
                     <input id="rcFoodCal" type="number" placeholder="cal" class="ex-input rc-food-num-input"/>
                     <input id="rcFoodProt" type="number" placeholder="g" class="ex-input rc-food-num-input"/>
+                    <div id="rcNewFoodCat"></div>
                     <button id="rcAddFoodBtn" class="ex-add-btn">+</button>
                 </div>
-                <button class="ex-close-btn" id="rcCalBack">BACK</button>
+                <button class="ex-close-btn" id="rcAddFoodBack">BACK</button>
+            </div>
+
+            <div id="rc-screen-past-foods" class="ex-screen" style="display:none">
+                <h3 class="ex-title">PAST FOODS</h3>
+                <div class="muscle-grid" id="rc-category-grid">
+                    <button class="muscle-btn" data-cat="B">BREAKFAST</button>
+                    <button class="muscle-btn" data-cat="S">SNACKS</button>
+                    <button class="muscle-btn" data-cat="L">LUNCH</button>
+                    <button class="muscle-btn" data-cat="D">DINNER</button>
+                </div>
+                <button class="ex-close-btn" id="rcPastFoodsBack">BACK</button>
+            </div>
+
+            <div id="rc-screen-cat-foods" class="ex-screen" style="display:none">
+                <h3 class="ex-title" id="rc-cat-title">BREAKFAST</h3>
+                <div id="rc-cat-food-list" class="exercise-list"></div>
+                <button class="ex-close-btn" id="rcCatFoodsBack">BACK</button>
             </div>
         </div>
     </div>

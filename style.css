@@ -1455,9 +1455,9 @@ p {
 }
 .rc-cal-stat {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
 }
 .rc-cal-big {
     font-family: var(--font-display);
@@ -1468,11 +1468,13 @@ p {
 }
 .rc-cal-small {
     font-family: var(--font-mono);
-    font-size: 0.48rem;
-    letter-spacing: 0.18em;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
     color: var(--text-faint);
     text-transform: uppercase;
 }
+#rc-screen-add-food .ex-close-btn { margin-top: 10px; }
+
 .rc-food-add-row {
     display: flex;
     gap: 5px;
@@ -1503,12 +1505,129 @@ p {
     padding: 8px 10px;
     cursor: pointer;
     transition: all var(--transition);
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
 }
 .rc-food-row:hover { border-color: var(--border-bright); }
 .rc-food-row.rc-food-selected {
     border-color: rgba(61,220,132,0.35);
     background: var(--green-dim);
 }
+.rc-drag-handle {
+    flex-shrink: 0;
+    color: var(--text-faint);
+    font-size: 0.85rem;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    padding-right: 6px;
+    line-height: 1;
+}
+.rc-drag-handle:active { cursor: grabbing; }
+.rc-food-row.rc-dragging {
+    opacity: 0.95;
+    background: var(--surface-3);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.55);
+    border-color: var(--gold-dim);
+    z-index: 10;
+    position: relative;
+    transition: box-shadow var(--transition), border-color var(--transition), opacity var(--transition);
+}
+
+.rc-cat-picker-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.rc-food-cat-badge {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: color var(--transition), border-color var(--transition);
+}
+.rc-food-cat-badge:hover { color: var(--gold); border-color: var(--gold-dim); }
+.rc-food-cat-badge--static { cursor: default; }
+.rc-food-cat-badge--static:hover { color: var(--text-muted); border-color: var(--border); }
+
+.rc-cat-picker {
+    display: none;
+    flex-direction: column;
+    position: fixed;
+    z-index: 9999;
+    background: var(--surface);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-md);
+    padding: 4px;
+    gap: 2px;
+    min-width: 110px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.rc-cat-picker-opt {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    padding: 6px 8px;
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition), color var(--transition);
+}
+.rc-cat-picker-opt:hover,
+.rc-cat-picker-opt--active { background: var(--surface-3); color: var(--text); }
+
+.rc-food-cat-badge.rc-food-cat-badge--input {
+    width: auto;
+    height: auto;
+    padding: 15px 14px;
+    font-size: 0.8rem;
+    font-weight: 400;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    border-color: var(--border);
+    color: var(--text-faint);
+    letter-spacing: 0.05em;
+}
+
+.rc-bottom-btns {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+.rc-bottom-btn {
+    flex: 1;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    padding: 8px 6px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: color var(--transition), border-color var(--transition);
+}
+.rc-bottom-btn:hover { color: var(--text); border-color: var(--border-bright); }
+.rc-bottom-btn--add { color: var(--gold); border-color: var(--gold-dim); }
+.rc-bottom-btn--add:hover { border-color: var(--gold); }
+
 .rc-food-dot {
     width: 10px;
     height: 10px;

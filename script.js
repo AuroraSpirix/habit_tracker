@@ -3329,6 +3329,168 @@ document.getElementById('closeRecoveryModal').onclick = () => {
 const FOOD_LIBRARY_KEY = 'food_library_v1';
 const FOOD_LOG_KEY     = 'food_log_v1';
 
+// ─── Food drag-to-reorder (pointer-based FLIP, same system as exercises) ──────
+function attachFoodDragHandlers(handle, row, listId) {
+    let startX = 0, startY = 0, activePointerId = null, dragStarted = false, state = null;
+
+    handle.addEventListener('pointerdown', e => {
+        if (e.button === 2) return;
+        activePointerId = e.pointerId;
+        startX = e.clientX; startY = e.clientY;
+        dragStarted = false;
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup',   onUp);
+        document.addEventListener('pointercancel', onUp);
+    });
+    handle.addEventListener('click', e => e.stopPropagation());
+
+    const beginDrag = () => {
+        const list = document.getElementById(listId);
+        const rect = row.getBoundingClientRect();
+        const others = Array.from(list.querySelectorAll('.rc-food-row')).filter(r => r !== row);
+        state = { list, others, grabOffsetY: startY - rect.top, currentBefore: null };
+        row.classList.add('rc-dragging');
+        try { row.setPointerCapture(activePointerId); } catch (_) {}
+    };
+
+    const onMove = e => {
+        if (e.pointerId !== activePointerId) return;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (!dragStarted) {
+            if (Math.sqrt(dx*dx + dy*dy) < 5) return;
+            dragStarted = true; beginDrag();
+        }
+        if (!state) return;
+        e.preventDefault();
+
+        const py = e.clientY;
+        const anchor = () => {
+            row.style.transform = '';
+            const nat = row.getBoundingClientRect().top;
+            row.style.transform = `translateY(${py - state.grabOffsetY - nat}px)`;
+        };
+        anchor();
+
+        let before = null;
+        for (const r of state.others) {
+            const b = r.getBoundingClientRect();
+            if (py < b.top + b.height / 2) { before = r; break; }
+        }
+        if (before === state.currentBefore) return;
+
+        state.others.forEach(r => { r.style.transition = 'none'; r.style.transform = ''; });
+        const rects = state.others.map(r => r.getBoundingClientRect());
+        if (before) state.list.insertBefore(row, before); else state.list.appendChild(row);
+        state.currentBefore = before;
+        anchor();
+        state.others.forEach((r, i) => {
+            const delta = rects[i].top - r.getBoundingClientRect().top;
+            if (!delta) return;
+            r.style.transition = 'none';
+            r.style.transform = `translateY(${delta}px)`;
+            requestAnimationFrame(() => {
+                r.style.transition = 'transform 180ms cubic-bezier(0.2,0,0,1)';
+                r.style.transform = '';
+            });
+        });
+    };
+
+    const onUp = e => {
+        if (e.pointerId !== activePointerId) return;
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup',   onUp);
+        document.removeEventListener('pointercancel', onUp);
+        if (state) {
+            const list = state.list;
+            const newIds = Array.from(list.querySelectorAll('.rc-food-row'))
+                .map(r => r.dataset.foodId).filter(Boolean);
+            row.classList.remove('rc-dragging');
+            row.style.transform = '';
+            state.others.forEach(r => { r.style.transition = ''; r.style.transform = ''; });
+            state = null;
+            const foods = getFoodLibrary();
+            const reordered = newIds.map(id => foods.find(f => f.id === id)).filter(Boolean);
+            foods.forEach(f => { if (!reordered.find(x => x.id === f.id)) reordered.push(f); });
+            saveFoodLibrary(reordered);
+        }
+        activePointerId = null; dragStarted = false;
+    };
+}
+
+const FOOD_CATS      = ['B', 'S', 'L', 'D'];
+const FOOD_CAT_NAMES = { B: 'BREAKFAST', S: 'SNACKS', L: 'LUNCH', D: 'DINNER' };
+const FOOD_CAT_LABELS = { B: 'BREAKFAST', S: 'SNACK', L: 'LUNCH', D: 'DINNER' };
+
+// Single shared dropdown lives on body — escapes all overflow/clip contexts
+const _sharedCatDropdown = (() => {
+    const el = document.createElement('div');
+    el.className = 'rc-cat-picker';
+    document.body.appendChild(el);
+    return el;
+})();
+let _sharedCatBadge = null;
+
+function makeCatPicker(initialCat, onSelect) {
+    const wrap = document.createElement('div');
+    wrap.className = 'rc-cat-picker-wrap';
+
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = 'rc-food-cat-badge';
+    badge.textContent = initialCat || '?';
+
+    badge.addEventListener('click', e => {
+        e.stopPropagation();
+        if (_sharedCatDropdown.style.display === 'flex' && _sharedCatBadge === badge) {
+            _sharedCatDropdown.style.display = 'none';
+            _sharedCatBadge = null;
+            return;
+        }
+        _sharedCatBadge = badge;
+
+        _sharedCatDropdown.innerHTML = '';
+        FOOD_CATS.forEach(cat => {
+            const opt = document.createElement('button');
+            opt.type = 'button';
+            opt.className = 'rc-cat-picker-opt' + (cat === badge.textContent ? ' rc-cat-picker-opt--active' : '');
+            opt.textContent = FOOD_CAT_LABELS[cat];
+            opt.addEventListener('click', ev => {
+                ev.stopPropagation();
+                badge.textContent = cat;
+                _sharedCatDropdown.style.display = 'none';
+                _sharedCatBadge = null;
+                if (onSelect) onSelect(cat);
+            });
+            _sharedCatDropdown.appendChild(opt);
+        });
+
+        const rect = badge.getBoundingClientRect();
+        _sharedCatDropdown.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        _sharedCatDropdown.style.top    = 'auto';
+        if (wrap.classList.contains('rc-cat-picker-wrap--right')) {
+            _sharedCatDropdown.style.right = (window.innerWidth - rect.right) + 'px';
+            _sharedCatDropdown.style.left  = 'auto';
+        } else {
+            _sharedCatDropdown.style.left  = rect.left + 'px';
+            _sharedCatDropdown.style.right = 'auto';
+        }
+        _sharedCatDropdown.style.display = 'flex';
+
+        const close = (ev) => {
+            if (ev.target !== badge && !_sharedCatDropdown.contains(ev.target)) {
+                _sharedCatDropdown.style.display = 'none';
+                _sharedCatBadge = null;
+                document.removeEventListener('click', close, true);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', close, true), 0);
+    });
+
+    wrap.appendChild(badge);
+    wrap.getCat = () => badge.textContent === '?' ? 'B' : badge.textContent;
+    return wrap;
+}
+
 function getFoodLibrary() {
     const raw = Storage.getItem(FOOD_LIBRARY_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -3387,9 +3549,8 @@ function syncCaloriesToSlider() {
 }
 
 function showRcScreen(id) {
-    ['rc-screen-type', 'rc-screen-calories'].forEach(s => {
-        document.getElementById(s).style.display = s === id ? 'block' : 'none';
-    });
+    ['rc-screen-type', 'rc-screen-calories', 'rc-screen-add-food', 'rc-screen-past-foods', 'rc-screen-cat-foods']
+        .forEach(s => { document.getElementById(s).style.display = s === id ? 'block' : 'none'; });
 }
 
 function openCalorieScreen() {
@@ -3402,11 +3563,12 @@ function renderFoodList() {
     list.innerHTML = '';
     const foods = getFoodLibrary();
     const log   = getTodayFoodLog();
+    const eaten = foods.filter(f => (log[f.id] || 0) > 0);
 
-    if (foods.length === 0) {
-        list.innerHTML = '<p class="empty-state">No foods saved yet.</p>';
+    if (eaten.length === 0) {
+        list.innerHTML = '<p class="empty-state">No foods logged today.</p>';
     } else {
-        foods.forEach(food => list.appendChild(buildFoodRow(food, log)));
+        eaten.forEach(food => list.appendChild(buildFoodRow(food, log)));
     }
     syncCaloriesToSlider();
 }
@@ -3421,9 +3583,19 @@ function buildFoodRow(food, log) {
 
     const row = document.createElement('div');
     row.className = 'rc-food-row' + (isSelected ? ' rc-food-selected' : '');
+    row.dataset.foodId = food.id;
 
-    const dot = document.createElement('span');
-    dot.className = 'rc-food-dot';
+    const handle = document.createElement('span');
+    handle.className = 'rc-drag-handle';
+    handle.textContent = '⠿';
+    attachFoodDragHandlers(handle, row, 'rc-food-list');
+
+    const dot = makeCatPicker(food.category || 'B', (cat) => {
+        const foods = getFoodLibrary();
+        const f = foods.find(x => x.id === food.id);
+        if (f) { f.category = cat; saveFoodLibrary(foods); }
+    });
+    dot.addEventListener('click', e => e.stopPropagation());
 
     const info = document.createElement('div');
     info.className = 'rc-food-info';
@@ -3452,6 +3624,7 @@ function buildFoodRow(food, log) {
     actions.appendChild(editBtn);
     actions.appendChild(delBtn);
 
+    row.appendChild(handle);
     row.appendChild(dot);
     row.appendChild(info);
 
@@ -3515,11 +3688,22 @@ function buildFoodRow(food, log) {
     row.appendChild(actions);
 
     row.addEventListener('click', e => {
-        if (e.target.closest('.rc-food-edit-btn') || e.target.closest('.exercise-delete-btn') || e.target.closest('.rc-food-portions')) return;
+        if (e.target.closest('.rc-food-edit-btn') || e.target.closest('.exercise-delete-btn') || e.target.closest('.rc-food-portions') || e.target.closest('.rc-drag-handle') || e.target.closest('.rc-cat-picker-wrap')) return;
         const log = getTodayFoodLog();
-        if (log[food.id]) { delete log[food.id]; } else { log[food.id] = 1; }
-        setTodayFoodLog(log);
-        renderFoodList();
+        if (log[food.id]) {
+            // Deselect — keep row visible so it can be re-selected; disappears on next open
+            delete log[food.id];
+            setTodayFoodLog(log);
+            row.classList.remove('rc-food-selected');
+            const portionCtrl = row.querySelector('.rc-food-portions');
+            if (portionCtrl) portionCtrl.style.display = 'none';
+            syncCaloriesToSlider();
+        } else {
+            // Re-select — full re-render to restore portion control
+            log[food.id] = 1;
+            setTodayFoodLog(log);
+            renderFoodList();
+        }
     });
 
     editBtn.addEventListener('click', e => {
@@ -3584,9 +3768,12 @@ function openFoodEditInRow(food, row) {
     cancelBtn.className = 'exercise-delete-btn';
     cancelBtn.textContent = '×';
 
+    const catPicker = makeCatPicker(food.category || 'B');
+
     const editRow = document.createElement('div');
     editRow.className = 'rc-food-edit-row';
     editRow.addEventListener('click', e => e.stopPropagation());
+    editRow.appendChild(catPicker);
     editRow.appendChild(nameInput);
     editRow.appendChild(calInput);
     editRow.appendChild(protInput);
@@ -3607,6 +3794,7 @@ function openFoodEditInRow(food, row) {
             f.name     = newName;
             f.calories = parseInt(calInput.value)  || 0;
             f.protein  = parseInt(protInput.value) || 0;
+            f.category = catPicker.getCat();
         }
         saveFoodLibrary(foods);
         renderFoodList();
@@ -3623,31 +3811,120 @@ document.getElementById('rcAddFoodBtn').addEventListener('click', () => {
     const nameInput = document.getElementById('rcFoodName');
     const calInput  = document.getElementById('rcFoodCal');
     const protInput = document.getElementById('rcFoodProt');
+    const pickerWrap = document.querySelector('#rcNewFoodCat .rc-cat-picker-wrap');
     const name = nameInput.value.trim();
     if (!name) { nameInput.focus(); return; }
     const foods = getFoodLibrary();
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    foods.push({ id, name, calories: parseInt(calInput.value) || 0, protein: parseInt(protInput.value) || 0 });
+    foods.push({ id, name, calories: parseInt(calInput.value) || 0, protein: parseInt(protInput.value) || 0, category: pickerWrap ? pickerWrap.getCat() : 'B' });
     saveFoodLibrary(foods);
+    const log = getTodayFoodLog();
+    log[id] = 1;
+    setTodayFoodLog(log);
     nameInput.value = '';
     calInput.value  = '';
     protInput.value = '';
+    showRcScreen('rc-screen-calories');
     renderFoodList();
-    nameInput.focus();
 });
 
 document.getElementById('rcFoodName').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('rcFoodCal').focus(); });
 document.getElementById('rcFoodCal').addEventListener('keydown',  e => { if (e.key === 'Enter') document.getElementById('rcFoodProt').focus(); });
 document.getElementById('rcFoodProt').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('rcAddFoodBtn').click(); });
 
-document.getElementById('rcCalBack').addEventListener('click', () => {
-    showRcScreen('rc-screen-type');
+document.getElementById('rcOpenAddFoodBtn').addEventListener('click', () => {
+    const container = document.getElementById('rcNewFoodCat');
+    container.innerHTML = '';
+    const p = makeCatPicker(null);
+    p.classList.add('rc-cat-picker-wrap--right');
+    p.querySelector('.rc-food-cat-badge').classList.add('rc-food-cat-badge--input');
+    container.appendChild(p);
+    showRcScreen('rc-screen-add-food');
+    document.getElementById('rcFoodName').focus();
+});
+document.getElementById('rcAddFoodBack').addEventListener('click', () => { showRcScreen('rc-screen-calories'); });
+
+document.getElementById('rcViewPastBtn').addEventListener('click', () => { showRcScreen('rc-screen-past-foods'); });
+document.getElementById('rcPastFoodsBack').addEventListener('click', () => { showRcScreen('rc-screen-calories'); });
+
+document.getElementById('rc-category-grid').addEventListener('click', e => {
+    const btn = e.target.closest('[data-cat]');
+    if (btn) openCatFoodScreen(btn.dataset.cat);
 });
 
+function openCatFoodScreen(cat) {
+    document.getElementById('rc-cat-title').textContent = FOOD_CAT_NAMES[cat] || cat;
+    const list = document.getElementById('rc-cat-food-list');
+    list.innerHTML = '';
+    const foods = getFoodLibrary().filter(f => (f.category || 'B') === cat);
+    if (foods.length === 0) {
+        list.innerHTML = '<p class="empty-state">No foods in this category yet.</p>';
+    } else {
+        foods.forEach(food => {
+            const log = getTodayFoodLog();
+            const row = document.createElement('div');
+            row.className = 'rc-food-row' + (log[food.id] ? ' rc-food-selected' : '');
+
+            row.dataset.foodId = food.id;
+
+            const handle = document.createElement('span');
+            handle.className = 'rc-drag-handle';
+            handle.textContent = '⠿';
+            attachFoodDragHandlers(handle, row, 'rc-cat-food-list');
+
+            const dot = document.createElement('span');
+            dot.className = 'rc-food-dot';
+
+            const info = document.createElement('div');
+            info.className = 'rc-food-info';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'rc-food-name-label';
+            nameEl.textContent = food.name;
+            const macrosEl = document.createElement('span');
+            macrosEl.className = 'rc-food-macros';
+            macrosEl.textContent = `${food.calories} cal · ${food.protein}g`;
+            info.appendChild(nameEl);
+            info.appendChild(macrosEl);
+
+            row.appendChild(handle);
+            row.appendChild(dot);
+            row.appendChild(info);
+
+            row.addEventListener('click', e => {
+                if (e.target.closest('.rc-drag-handle')) return;
+                const log = getTodayFoodLog();
+                const wasSelected = !!log[food.id];
+                if (wasSelected) { delete log[food.id]; } else { log[food.id] = 1; }
+                setTodayFoodLog(log);
+                if (!wasSelected) {
+                    showRcScreen('rc-screen-calories');
+                    renderFoodList();
+                } else {
+                    row.className = 'rc-food-row';
+                    syncCaloriesToSlider();
+                }
+            });
+            list.appendChild(row);
+        });
+    }
+    showRcScreen('rc-screen-cat-foods');
+}
+
+document.getElementById('rcCatFoodsBack').addEventListener('click', () => { showRcScreen('rc-screen-past-foods'); });
+
+document.getElementById('rcCalBack').addEventListener('click', () => { showRcScreen('rc-screen-type'); });
+
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && document.getElementById('rc-screen-calories').style.display !== 'none') {
-        e.stopPropagation();
-        showRcScreen('rc-screen-type');
+    if (e.key !== 'Escape') return;
+    const screens = {
+        'rc-screen-cat-foods':  () => showRcScreen('rc-screen-past-foods'),
+        'rc-screen-past-foods': () => showRcScreen('rc-screen-calories'),
+        'rc-screen-add-food':   () => showRcScreen('rc-screen-calories'),
+        'rc-screen-calories':   () => showRcScreen('rc-screen-type'),
+    };
+    for (const [id, fn] of Object.entries(screens)) {
+        const el = document.getElementById(id);
+        if (el && el.style.display !== 'none') { e.stopPropagation(); fn(); return; }
     }
 });
 // ─────────────────────────────────────────────────────────────────────────────
