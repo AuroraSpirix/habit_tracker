@@ -2334,11 +2334,6 @@ p {
 
 /* ─── Analytics Overlay ────────────────────────────────────────────────────── */
 
-@keyframes analyticsHoldExpand {
-    0%   { r: 5px;  stroke-opacity: 0.8; }
-    100% { r: 30px; stroke-opacity: 0;   }
-}
-
 /* Backdrop — same pattern as other modals */
 .analytics-overlay {
     position: fixed;
@@ -2485,8 +2480,25 @@ p {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 10px;
-    align-items: start;
+    align-items: stretch;
 }
+.analytics-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.analytics-col > .asec:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.analytics-col > .asec:last-child .rf-response-list {
+    flex: 1;
+    max-height: 49vh;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+.analytics-col > .asec:last-child .rf-response-list::-webkit-scrollbar { display: none; }
 
 @media (max-width: 700px) {
     .analytics-cols {
@@ -2503,11 +2515,6 @@ p {
         border-radius: 0;
         border: none;
     }
-}
-.analytics-col {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
 }
 
 /* ── Horizontal bar rows ────────────────── */
@@ -2601,7 +2608,7 @@ p {
     display: flex;
     flex-direction: column;
     gap: 7px;
-    max-height: 350px;
+    max-height: 353px;
     overflow-y: auto;
     scrollbar-width: none;
 }

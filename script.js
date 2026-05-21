@@ -318,7 +318,7 @@ const defaultValues = [
     { name: 'Spirituality', value: 2, note: '' },
     { name: 'Recovery', value: 2, note: '' },
     { name: 'Mindset', value: 2, note: '' },
-    { name: 'Mindfulness', value: 2, note: '' },
+    { name: 'Mindfulness', value: 0, note: '' },
     { name: 'Reflection', value: 2, note: '' },
     { name: 'Mobility', value: 2, note: '' },
     { name: 'Creativity', value: 2, note: '' }
@@ -4395,6 +4395,11 @@ document.getElementById('closeMindfulnessModal').onclick = () => {
     document.getElementById('mindfulnessModal').style.display = 'none';
 };
 
+document.querySelector('#mindfulnessModal .ex-title').addEventListener('click', () => {
+    document.getElementById('mindfulnessModal').style.display = 'none';
+    openMusicModal();
+});
+
 document.getElementById('mf-breath-slider').addEventListener('input', () => {
     const val = parseInt(document.getElementById('mf-breath-slider').value);
     document.getElementById('mf-breath-val').textContent = val;
@@ -5200,7 +5205,7 @@ function openMusicModal() {
     document.getElementById('musicModal').style.display = 'flex';
 }
 
-document.getElementById('day-name').addEventListener('click', openMusicModal);
+document.getElementById('day-name').addEventListener('click', openAnalytics);
 document.getElementById('closeMusicModal').addEventListener('click', () => {
     document.getElementById('musicModal').style.display = 'none';
 });
@@ -5335,7 +5340,15 @@ function analyticsScoreData(dates) {
 
 function analyticsWeightData(dates) {
     const all = JSON.parse(Storage.getItem(WEIGHT_KEY) || '{}');
-    return dates.map(d => ({ date: d, value: all[d] ?? null }));
+    const today = getDateKey(new Date());
+    const sortedKeys = Object.keys(all).sort();
+    return dates.map(d => {
+        if (all[d] != null) return { date: d, value: all[d] };
+        if (d > today)      return { date: d, value: null };
+        // Carry forward the most recent recorded weight
+        const past = sortedKeys.filter(k => k <= d).pop();
+        return { date: d, value: past != null ? all[past] : null };
+    });
 }
 
 function analyticsSleepData(dates) {
@@ -5425,8 +5438,8 @@ function _fmtY(v) {
 }
 
 function makeLineSVG(points, color, opts) {
-    const { min = 0, maxVal = null, showDots = true, targetLine = null } = opts || {};
-    const W = 440, H = 110, PL = 28, PR = 6, PT = 6, PB = 20;
+    const { min = 0, maxVal = null, showDots = true, targetLine = null, chartH = 110 } = opts || {};
+    const W = 440, H = chartH, PL = 28, PR = 6, PT = 6, PB = 20;
     const CW = W - PL - PR, CH = H - PT - PB;
     const vals = points.map(p => p.value).filter(v => v != null);
     if (!vals.length) return _emptyChartSVG(W, H);
@@ -5655,7 +5668,7 @@ const CAT_LINE_COLORS = [
 ];
 
 function makeCategoryTrendSVG(scoreData) {
-    const W = 440, H = 92, PL = 28, PR = 6, PT = 6, PB = 20;
+    const W = 440, H = 135, PL = 28, PR = 6, PT = 6, PB = 20;
     const CW = W - PL - PR, CH = H - PT - PB;
     const n = scoreData.length;
     if (!n) return _emptyChartSVG(W, H);
@@ -5837,31 +5850,101 @@ function makeVirtueLegendHTML() {
 
 // ─── Gym progression section ───────────────────────────────────────────────────
 
+// Per-exercise progression SVG — y-axis is 0–100% of that exercise's personal best
+function makeGymProgressSVG(datasets, allDates) {
+    const W = 440, H = 68, PL = 32, PR = 6, PT = 6, PB = 20;
+    const CW = W - PL - PR, CH = H - PT - PB;
+    const n = allDates.length;
+    if (!n) return _emptyChartSVG(W, H);
+
+    // Find actual min/max across all data points, then pad by ~8% either side
+    const allVals = datasets.flatMap(({ points }) => points.map(p => p.value).filter(v => v != null));
+    const rawMin  = allVals.length ? Math.min(...allVals) : 0;
+    const rawMax  = allVals.length ? Math.max(...allVals) : 100;
+    const pad     = Math.max(5, Math.round((rawMax - rawMin) * 0.12));
+    const yMin    = Math.max(0,   rawMin - pad);
+    const yMax    = Math.min(100, rawMax + pad);
+    const yRange  = (yMax - yMin) || 1;
+
+    const toX = i  => PL + (i / Math.max(1, n - 1)) * CW;
+    const toY = v  => PT + CH - ((v - yMin) / yRange) * CH;
+
+    // Three evenly-spaced grid lines within the actual range
+    const gridSVG = [0, 0.5, 1].map(f => {
+        const val = yMin + f * yRange;
+        const y   = (PT + CH * (1 - f)).toFixed(1);
+        return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>` +
+            `<text x="${PL-3}" y="${(parseFloat(y)+3).toFixed(1)}" text-anchor="end" fill="rgba(240,236,228,0.38)" font-size="7" font-family="-apple-system,sans-serif">${Math.round(val)}%</text>`;
+    }).join('');
+
+    const GYM_COLORS = ['#c9a96e','#5dbea3','#7aa8d4','#a87ed4','#d47a7a','#d4c05a','#d4916a'];
+
+    const linesSVG = datasets.map(({ points }, ci) => {
+        const color = GYM_COLORS[ci % GYM_COLORS.length];
+        const vps = points.map((p, i) => ({ i, v: p.value })).filter(p => p.v != null);
+        if (vps.length < 2) return '';
+        const pts = vps.map(p => [toX(p.i), toY(p.v)]);
+        let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+        for (let k = 1; k < pts.length; k++) {
+            const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
+            d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
+        }
+        const dots = vps.map(p => `<circle cx="${toX(p.i).toFixed(1)}" cy="${toY(p.v).toFixed(1)}" r="2" fill="${color}"/>`).join('');
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
+    }).join('');
+
+    const li = _aLabelIndices(n);
+    const xLabelsSVG = li.filter(i => i < n).map(i =>
+        `<text x="${toX(i).toFixed(1)}" y="${H-4}" text-anchor="middle" fill="rgba(240,236,228,0.35)" font-size="8" font-family="-apple-system,sans-serif">${_aDateLabel(allDates[i], n)}</text>`
+    ).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
+${gridSVG}${linesSVG}${xLabelsSVG}
+</svg>`;
+}
+
 function makeGymSection(dates) {
     const logs   = getExerciseLogs();
+    const checks = getExerciseChecks();
     const dateSet = new Set(dates);
 
-    // muscleVolumes[muscle][date] = sum of (weight × reps) across all logged sets
-    const muscleVolumes = {};
+    // exVolumes[muscle][exercise][date] = volume of CHECKED sets only
+    const exVolumes = {};
     Object.entries(logs).forEach(([key, sets]) => {
         const parts = key.split('__');
         if (parts.length < 3) return;
-        const [date, muscle] = parts;
+        const [date, muscle, ...exParts] = parts;
+        const exercise = exParts.join('__');
         if (!dateSet.has(date)) return;
-        const volume = (Array.isArray(sets) ? sets : []).reduce((s, set) => {
+
+        const checkedStates = checks[key] || [];
+        const volume = (Array.isArray(sets) ? sets : []).reduce((s, set, i) => {
+            if (!checkedStates[i]) return s; // skip unchecked sets
             return s + (parseFloat(set.weight) || 0) * (parseFloat(set.reps) || 0);
         }, 0);
         if (!volume) return;
-        if (!muscleVolumes[muscle]) muscleVolumes[muscle] = {};
-        muscleVolumes[muscle][date] = (muscleVolumes[muscle][date] || 0) + volume;
+
+        if (!exVolumes[muscle]) exVolumes[muscle] = {};
+        if (!exVolumes[muscle][exercise]) exVolumes[muscle][exercise] = {};
+        exVolumes[muscle][exercise][date] = (exVolumes[muscle][exercise][date] || 0) + volume;
     });
 
-    const muscles = Object.keys(muscleVolumes);
+    // Keep only exercises done on 2+ different days
+    Object.keys(exVolumes).forEach(muscle => {
+        Object.keys(exVolumes[muscle]).forEach(ex => {
+            if (Object.keys(exVolumes[muscle][ex]).length < 2) delete exVolumes[muscle][ex];
+        });
+        if (!Object.keys(exVolumes[muscle]).length) delete exVolumes[muscle];
+    });
+
+    const muscles = Object.keys(exVolumes);
     if (!muscles.length) return null;
+
+    const GYM_COLORS = ['#c9a96e','#5dbea3','#7aa8d4','#a87ed4','#d47a7a','#d4c05a','#d4916a'];
 
     const sec = document.createElement('div');
     sec.className = 'asec';
-    sec.innerHTML = '<div class="asec-ttl">GYM VOLUME</div>';
+    sec.innerHTML = '<div class="asec-ttl">GYM PROGRESSION</div>';
 
     const select = document.createElement('select');
     select.className = 'asec-select';
@@ -5872,20 +5955,49 @@ function makeGymSection(dates) {
         select.appendChild(opt);
     });
 
-    const chartDiv = document.createElement('div');
+    const chartDiv  = document.createElement('div');
+    const legendDiv = document.createElement('div');
+    legendDiv.className = 'cat-legend';
 
     function showMuscle(muscle) {
-        const dateVolumes  = muscleVolumes[muscle] || {};
-        const sessionDates = Object.keys(dateVolumes).sort();
-        if (!sessionDates.length) { chartDiv.innerHTML = _emptyChartSVG(440, 90); return; }
-        const points = sessionDates.map(d => ({ date: d, value: dateVolumes[d] }));
-        chartDiv.innerHTML = makeLineSVG(points, '#c9a96e', { showDots: true });
+        const exercises = exVolumes[muscle] || {};
+        const exNames = Object.keys(exercises);
+        if (!exNames.length) {
+            chartDiv.innerHTML = _emptyChartSVG(440, 68);
+            legendDiv.innerHTML = '';
+            return;
+        }
+
+        // Collect all dates this muscle was trained, sorted
+        const allDatesSet = new Set();
+        exNames.forEach(ex => Object.keys(exercises[ex]).forEach(d => allDatesSet.add(d)));
+        const allDates = Array.from(allDatesSet).sort();
+
+        // Normalize each exercise to % of its personal best
+        const datasets = exNames.map((ex, i) => {
+            const dateVols = exercises[ex];
+            const best = Math.max(...Object.values(dateVols));
+            return {
+                name: ex,
+                color: GYM_COLORS[i % GYM_COLORS.length],
+                points: allDates.map(d => ({
+                    date: d,
+                    value: dateVols[d] != null ? Math.round((dateVols[d] / best) * 100) : null
+                }))
+            };
+        });
+
+        chartDiv.innerHTML = makeGymProgressSVG(datasets, allDates);
+        legendDiv.innerHTML = datasets.map(({ name, color }) =>
+            `<span class="cat-legend-item" style="color:${color}">&#9679; ${name}</span>`
+        ).join('');
     }
 
     select.addEventListener('change', () => showMuscle(select.value));
     showMuscle(muscles[0]);
     sec.appendChild(select);
     sec.appendChild(chartDiv);
+    sec.appendChild(legendDiv);
     return sec;
 }
 
@@ -5899,54 +6011,128 @@ const RF_QUESTIONS = [
     { key: 'better',   label: 'What will I do better tomorrow?'   },
 ];
 
-function makeReflectionSection(dates) {
-    const allData = JSON.parse(Storage.getItem('reflection_321') || '{}');
-    const byQuestion = {};
-    RF_QUESTIONS.forEach(q => { byQuestion[q.key] = []; });
-    dates.forEach(date => {
-        const day = allData[date] || {};
-        RF_QUESTIONS.forEach(q => {
-            (day[q.key] || []).filter(e => e && e.trim()).forEach(text => {
-                byQuestion[q.key].push({ date, text });
-            });
-        });
-    });
+function _rfDateLabel(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[m-1]} ${d}, ${y}`;
+}
 
+function _rfRenderList(list, entries) {
+    list.innerHTML = '';
+    if (!entries.length) {
+        list.innerHTML = '<div class="rf-empty">no entries for this period</div>';
+        return;
+    }
+    entries.forEach(({ date, title, text }) => {
+        const item = document.createElement('div');
+        item.className = 'rf-response-item';
+        item.innerHTML = `<div class="rf-item-date">${_rfDateLabel(date)}${title ? ' — ' + title : ''}</div><div class="rf-item-text">${text}</div>`;
+        list.appendChild(item);
+    });
+}
+
+function makeReflectionSection(dates) {
     const sec = document.createElement('div');
     sec.className = 'asec';
-    sec.innerHTML = '<div class="asec-ttl">REFLECTION</div>';
 
+    // Single dropdown: reflection questions as an optgroup, then the other three
     const select = document.createElement('select');
     select.className = 'asec-select';
+
+    const rfGroup = document.createElement('optgroup');
+    rfGroup.label = 'REFLECTION';
     RF_QUESTIONS.forEach(q => {
         const opt = document.createElement('option');
-        opt.value = q.key;
+        opt.value = 'rf__' + q.key;
         opt.textContent = q.label;
-        select.appendChild(opt);
+        rfGroup.appendChild(opt);
     });
+    select.appendChild(rfGroup);
+
+    const otherGroup = document.createElement('optgroup');
+    otherGroup.label = 'NOTES';
+    [
+        { value: 'spiritual',  label: 'Spiritual'  },
+        { value: 'mindset',    label: 'Mindset'    },
+        { value: 'creativity', label: 'Creativity' },
+    ].forEach(({ value, label }) => {
+        const opt = document.createElement('option');
+        opt.value = value; opt.textContent = label;
+        otherGroup.appendChild(opt);
+    });
+    select.appendChild(otherGroup);
 
     const list = document.createElement('div');
     list.className = 'rf-response-list';
 
-    function showQuestion(key) {
+    function showSelection(val) {
         list.innerHTML = '';
-        const entries = byQuestion[key];
-        if (!entries.length) {
-            list.innerHTML = '<div class="rf-empty">no responses for this period</div>';
+
+        if (val.startsWith('rf__')) {
+            const key = val.slice(4);
+            const allData = JSON.parse(Storage.getItem('reflection_321') || '{}');
+            const entries = [];
+            dates.forEach(date => {
+                const day = allData[date] || {};
+                (day[key] || []).filter(e => e && e.trim()).forEach(text => {
+                    entries.push({ date, text });
+                });
+            });
+            _rfRenderList(list, entries.reverse());
             return;
         }
-        [...entries].reverse().forEach(({ date, text }) => {
-            const [y, m, d] = date.split('-').map(Number);
-            const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            const item = document.createElement('div');
-            item.className = 'rf-response-item';
-            item.innerHTML = `<div class="rf-item-date">${months[m-1]} ${d}, ${y}</div><div class="rf-item-text">${text}</div>`;
-            list.appendChild(item);
-        });
+        if (val === 'spiritual') {
+            const all = JSON.parse(Storage.getItem(SPIRITUAL_KEY) || '{}');
+            const entries = [];
+            dates.forEach(date => {
+                (all[date] || []).forEach(e => {
+                    if (e.notes && e.notes.trim())
+                        entries.push({ date, title: e.topic || '', text: e.notes });
+                });
+            });
+            _rfRenderList(list, entries.reverse());
+            return;
+        }
+        if (val === 'mindset') {
+            const notes = getMindsetNotes();
+            const entries = [];
+            Object.entries(notes).forEach(([key, text]) => {
+                if (!text || !text.trim()) return;
+                const sep   = key.indexOf('__');
+                const type  = sep >= 0 ? key.slice(0, sep)  : key;
+                const title = sep >= 0 ? key.slice(sep + 2) : key;
+                entries.push({ date: '', title: `${type.toUpperCase()}: ${title}`, text });
+            });
+            if (!entries.length) {
+                list.innerHTML = '<div class="rf-empty">no mindset notes yet</div>';
+            } else {
+                entries.forEach(({ title, text }) => {
+                    const item = document.createElement('div');
+                    item.className = 'rf-response-item';
+                    item.innerHTML = `<div class="rf-item-date">${title}</div><div class="rf-item-text">${text}</div>`;
+                    list.appendChild(item);
+                });
+            }
+            return;
+        }
+        if (val === 'creativity') {
+            const notes   = getCreativityNotes();
+            const dateSet = new Set(dates);
+            const entries = [];
+            Object.entries(notes).forEach(([key, text]) => {
+                if (!text || !text.trim()) return;
+                const sep  = key.indexOf('__');
+                const date = sep >= 0 ? key.slice(0, sep) : '';
+                const item = sep >= 0 ? key.slice(sep + 2) : key;
+                if (!dateSet.has(date)) return;
+                entries.push({ date, title: item, text });
+            });
+            _rfRenderList(list, entries.sort((a, b) => b.date.localeCompare(a.date)));
+        }
     }
 
-    select.addEventListener('change', () => showQuestion(select.value));
-    showQuestion(RF_QUESTIONS[0].key);
+    select.addEventListener('change', () => showSelection(select.value));
+    showSelection(select.value);
     sec.appendChild(select);
     sec.appendChild(list);
     return sec;
@@ -6008,17 +6194,20 @@ function renderAnalytics(period) {
     cols.appendChild(col3);
     body.appendChild(cols);
 
-    // ── COLUMN 1: daily metrics ───────────────────────────────────────────────
+    // ── COLUMN 1 ──────────────────────────────────────────────────────────────
+    // pos 1: Gym Volume
 
-    const catTrendSec = document.createElement('div');
-    catTrendSec.className = 'asec';
-    catTrendSec.innerHTML = `<div class="asec-ttl">CATEGORY TRENDS</div>` +
-        makeCategoryTrendSVG(scoreData) + makeCatLegendHTML();
-    col1.appendChild(catTrendSec);
+    const gymSec = makeGymSection(dates);
+    if (gymSec) col1.appendChild(gymSec);
 
-    _aAppendSec(col1, 'MINDFULNESS (MIN)',
-        makeLineSVG(mfData, GOLD, { min: 0, maxVal: 30, showDots })
-    );
+    // pos 4: Sin Levels
+    const sinTrendSec = document.createElement('div');
+    sinTrendSec.className = 'asec';
+    sinTrendSec.innerHTML = `<div class="asec-ttl">SIN LEVELS</div>` +
+        makeSinTrendSVG(analyticsSinData(dates)) + makeSinLegendHTML();
+    col1.appendChild(sinTrendSec);
+
+    // pos 7, 10
     _aAppendSec(col1, 'CALORIES',
         makeLineSVG(calData.map(d => ({ date: d.date, value: d.cal })), GOLD, { min: 0, showDots })
     );
@@ -6026,32 +6215,36 @@ function renderAnalytics(period) {
         makeLineSVG(hydroData, GOLD, { min: 0, maxVal: 15, showDots })
     );
 
-    // ── COLUMN 2: character trends ────────────────────────────────────────────
+    // ── COLUMN 2 ──────────────────────────────────────────────────────────────
+    // pos 2, 5
+    _aAppendSec(col2, 'MINDFULNESS (MIN)',
+        makeLineSVG(mfData, GOLD, { min: 0, maxVal: 30, showDots })
+    );
+    _aAppendSec(col2, 'SLEEP (HRS)',
+        makeLineSVG(sleepData, GOLD, { min: 6, maxVal: 10, targetLine: 8, showDots })
+    );
 
-    const sinTrendSec = document.createElement('div');
-    sinTrendSec.className = 'asec';
-    sinTrendSec.innerHTML = `<div class="asec-ttl">SIN LEVELS</div>` +
-        makeSinTrendSVG(analyticsSinData(dates)) + makeSinLegendHTML();
-    col2.appendChild(sinTrendSec);
-
+    // pos 8: Virtue Levels
     const virtueTrendSec = document.createElement('div');
     virtueTrendSec.className = 'asec';
     virtueTrendSec.innerHTML = `<div class="asec-ttl">VIRTUE LEVELS</div>` +
         makeVirtueTrendSVG(analyticsVirtueData(dates)) + makeVirtueLegendHTML();
     col2.appendChild(virtueTrendSec);
 
+    // pos 11
     _aAppendSec(col2, 'BODY WEIGHT (LBS)',
         makeLineSVG(wData, GOLD, { min: 150, maxVal: 180, showDots })
     );
-    _aAppendSec(col2, 'SLEEP (HRS)',
-        makeLineSVG(sleepData, GOLD, { min: 6, maxVal: 10, targetLine: 8, showDots })
-    );
 
-    // ── COLUMN 3: activity & reflection ──────────────────────────────────────
+    // ── COLUMN 3 ──────────────────────────────────────────────────────────────
+    // pos 3: Category Trends
+    const catTrendSec = document.createElement('div');
+    catTrendSec.className = 'asec';
+    catTrendSec.innerHTML = `<div class="asec-ttl">CATEGORY TRENDS</div>` +
+        makeCategoryTrendSVG(scoreData) + makeCatLegendHTML();
+    col3.appendChild(catTrendSec);
 
-    const gymSec = makeGymSection(dates);
-    if (gymSec) col3.appendChild(gymSec);
-
+    // pos 6: Reflection
     col3.appendChild(makeReflectionSection(dates));
 
 }
@@ -6091,68 +6284,3 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && modal && modal.style.display !== 'none') closeAnalytics();
 });
 
-// ─── Center long-press trigger ─────────────────────────────────────────────────
-
-(function () {
-    function showHoldRing() {
-        let ring = document.getElementById('analytics-hold-ring');
-        if (!ring) {
-            ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            ring.setAttribute('id', 'analytics-hold-ring');
-            ring.setAttribute('cx', String(centerX));
-            ring.setAttribute('cy', String(centerY));
-            ring.setAttribute('fill', 'none');
-            ring.setAttribute('stroke', 'rgba(201,169,110,0.55)');
-            ring.setAttribute('stroke-width', '1.5');
-            ring.setAttribute('r', '5');
-            svg.appendChild(ring);
-        }
-        ring.style.animation = 'none';
-        void ring.getBoundingClientRect(); // force reflow so animation restarts
-        ring.style.animation = 'analyticsHoldExpand 0.7s ease-out forwards';
-    }
-
-    function hideHoldRing() {
-        const ring = document.getElementById('analytics-hold-ring');
-        if (ring) ring.remove();
-    }
-
-    svg.addEventListener('pointerdown', (e) => {
-        // Convert click point to SVG coords (same approach as the drag handler)
-        const pt = svg.createSVGPoint();
-        pt.x = e.clientX;
-        pt.y = e.clientY;
-        const ctm = svg.getScreenCTM();
-        if (!ctm) return;
-        const p = pt.matrixTransform(ctm.inverse());
-
-        // Only activate if within 26 SVG units of the center
-        if (Math.hypot(p.x - centerX, p.y - centerY) > 26) return;
-
-        const startX = e.clientX, startY = e.clientY;
-        showHoldRing();
-
-        const timer = setTimeout(() => {
-            cleanup();
-            hideHoldRing();
-            openAnalytics();
-        }, 700);
-
-        function onMove(ev) {
-            if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 12) cleanup();
-        }
-        function onUp() { cleanup(); }
-
-        function cleanup() {
-            clearTimeout(timer);
-            hideHoldRing();
-            window.removeEventListener('pointermove', onMove);
-            window.removeEventListener('pointerup',     onUp);
-            window.removeEventListener('pointercancel', onUp);
-        }
-
-        window.addEventListener('pointermove',   onMove);
-        window.addEventListener('pointerup',     onUp);
-        window.addEventListener('pointercancel', onUp);
-    });
-}());
