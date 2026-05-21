@@ -5426,7 +5426,7 @@ function _fmtY(v) {
 
 function makeLineSVG(points, color, opts) {
     const { min = 0, maxVal = null, showDots = true, targetLine = null } = opts || {};
-    const W = 440, H = 62, PL = 28, PR = 6, PT = 5, PB = 20;
+    const W = 440, H = 110, PL = 28, PR = 6, PT = 6, PB = 20;
     const CW = W - PL - PR, CH = H - PT - PB;
     const vals = points.map(p => p.value).filter(v => v != null);
     if (!vals.length) return _emptyChartSVG(W, H);

@@ -2487,6 +2487,23 @@ p {
     gap: 10px;
     align-items: start;
 }
+
+@media (max-width: 700px) {
+    .analytics-cols {
+        grid-template-columns: 1fr;
+    }
+    .analytics-overlay {
+        padding: 0;
+        align-items: stretch;
+    }
+    .analytics-inner {
+        width: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        border-radius: 0;
+        border: none;
+    }
+}
 .analytics-col {
     display: flex;
     flex-direction: column;
@@ -2584,7 +2601,7 @@ p {
     display: flex;
     flex-direction: column;
     gap: 7px;
-    max-height: 320px;
+    max-height: 350px;
     overflow-y: auto;
     scrollbar-width: none;
 }
