@@ -360,8 +360,29 @@
         </div>
     </div>
 
+<div id="lustPopup" class="lust-popup" style="display:none">
+    <div class="lust-popup-title">RELAPSED</div>
+    <button class="lust-option" data-status="yes">YES</button>
+    <button class="lust-option" data-status="no">NO</button>
+</div>
+
 <div id="gymTimer" class="gym-timer">
     <span id="gymTimerDisplay">2:00</span>
+</div>
+
+<div id="analyticsModal" class="analytics-overlay" style="display:none">
+    <div class="analytics-inner">
+        <div class="analytics-hdr">
+            <span class="analytics-ttl">ANALYTICS</span>
+            <div class="analytics-tabs" id="analyticsTabs">
+                <button class="atab atab--active" data-period="week">WEEK</button>
+                <button class="atab" data-period="month">MONTH</button>
+                <button class="atab" data-period="year">YEAR</button>
+            </div>
+            <button id="closeAnalytics" class="analytics-x">&#x2715;</button>
+        </div>
+        <div id="analytics-body" class="analytics-body"></div>
+    </div>
 </div>
 
 <script src="script.js"></script>

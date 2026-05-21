@@ -409,29 +409,52 @@ function setSinLevel(activity, value) {
     setLevel(SIN_LEVELS_KEY, activity, value);
 }
 
-// Generic versions used by the mixer renderer — work with any storage key.
-// Levels are now GLOBAL: every day reads and writes the same flat map.
+// Sin/virtue levels are stored per-day: { "YYYY-MM-DD": { activity: value } }
+// When reading a day with no entry, fall back to the most recent past entry
+// so values carry forward until explicitly changed.
+// Legacy global format { activity: value } is still read correctly and migrated
+// to per-day on the first write.
+
+function _mostRecentLevels(parsed, dateKey) {
+    if (parsed[dateKey]) return parsed[dateKey];
+    const past = Object.keys(parsed).filter(k => _DATE_KEY_RX.test(k) && k < dateKey).sort();
+    return past.length ? parsed[past[past.length - 1]] : {};
+}
+
 function getAllLevels(key) {
     try {
         const parsed = JSON.parse(Storage.getItem(key)) || {};
-        // If we encounter pre-migration per-day data (e.g. cloud save raced
-        // ahead of migration), fall back to today's slice rather than the
-        // outer object so callers get sensible numbers.
-        if (_looksLikePerDay(parsed)) return parsed[getDateKey(viewDate)] || {};
-        return parsed;
+        if (_looksLikePerDay(parsed)) return _mostRecentLevels(parsed, getDateKey(viewDate));
+        return parsed; // legacy global format
     } catch(e) { return {}; }
 }
 function getLevelsForDay(key) {
-    return getAllLevels(key); // global = same every day
+    return getAllLevels(key);
 }
 function setLevel(key, activity, value) {
-    const all = getAllLevels(key);
-    if (value === 0) {
-        delete all[activity];
-    } else {
-        all[activity] = value;
+    let fullData;
+    try { fullData = JSON.parse(Storage.getItem(key)) || {}; }
+    catch(e) { fullData = {}; }
+
+    const today = getDateKey(viewDate);
+
+    // Migrate legacy global format to per-day on first write
+    if (Object.keys(fullData).length > 0 && !_looksLikePerDay(fullData)) {
+        fullData = { [today]: { ...fullData } };
     }
-    Storage.setItem(key, JSON.stringify(all));
+
+    // Seed today's entry from the most recent past entry if not yet set today
+    if (!fullData[today]) {
+        const past = Object.keys(fullData).filter(k => _DATE_KEY_RX.test(k) && k < today).sort();
+        fullData[today] = past.length ? { ...fullData[past[past.length - 1]] } : {};
+    }
+
+    if (value === 0) {
+        delete fullData[today][activity];
+    } else {
+        fullData[today][activity] = value;
+    }
+    Storage.setItem(key, JSON.stringify(fullData));
 }
 
 
@@ -1295,20 +1318,15 @@ function renderSinsMixer(opts, targetContainer, targetMode) {
         const slot = document.createElement('div');
         slot.className = 'sin-slot';
 
-        // Note exists for this activity today?
-        // Supports both new format ({ notes }) and old format ({ happened, learned }).
-        const entryKey = getDateKey(viewDate) + '__' + activity;
-        const entry = entries[entryKey];
-        const hasNote = !!entry && (entry.notes || entry.happened || entry.learned);
-
-        // Label (click → opens note modal). When a note exists for today,
-        // CSS underlines the label via the .has-note class.
         const label = document.createElement('span');
-        label.className = hasNote ? 'sin-label has-note' : 'sin-label';
-        label.textContent = (mode === 'virtues' && window.innerWidth <= 480 && activity.length > 5)
-            ? activity.slice(0, 5) + '.'
-            : activity;
-        label.onclick = () => openAvoidedModal(activity);
+        label.className = 'sin-label';
+        const displayName = (mode === 'virtues' && window.innerWidth <= 480 && activity.length > 5)
+            ? activity.slice(0, 5) + '.' : activity;
+        label.textContent = displayName;
+        if (activity === 'Lust') {
+            label.style.cursor = 'pointer';
+            label.onclick = (e) => { e.stopPropagation(); toggleLustPopup(label); };
+        }
 
         // Slider assembly: wrap > track (with fill inside) + thumb.
         const wrap = document.createElement('div');
@@ -4870,6 +4888,54 @@ window.addEventListener('keydown', (e) => {
 });
 
 
+// ─── Lust status popup ───────────────────────────────────────────────────────
+function getLustStatus() {
+    const key = getDateKey(viewDate) + '__Lust';
+    try {
+        const all = JSON.parse(Storage.getItem(AVOIDED_ENTRIES_KEY)) || {};
+        return (all[key] && all[key].status) || null;
+    } catch(e) { return null; }
+}
+
+function saveLustStatus(status) {
+    const key = getDateKey(viewDate) + '__Lust';
+    let all = {};
+    try { all = JSON.parse(Storage.getItem(AVOIDED_ENTRIES_KEY)) || {}; } catch(e) {}
+    if (status) { all[key] = { status }; } else { delete all[key]; }
+    Storage.setItem(AVOIDED_ENTRIES_KEY, JSON.stringify(all));
+}
+
+function toggleLustPopup(labelEl) {
+    const popup = document.getElementById('lustPopup');
+    if (popup.style.display !== 'none') { popup.style.display = 'none'; return; }
+    const current = getLustStatus() || 'no';
+    popup.dataset.selected = current;
+    popup.querySelectorAll('.lust-option').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.status === current);
+    });
+    const rect = labelEl.getBoundingClientRect();
+    popup.style.top  = (rect.bottom + 6) + 'px';
+    popup.style.left = rect.left + 'px';
+    popup.style.display = 'block';
+}
+
+document.querySelectorAll('.lust-option').forEach(btn => {
+    btn.addEventListener('click', e => {
+        e.stopPropagation();
+        saveLustStatus(btn.dataset.status);
+        const popup = document.getElementById('lustPopup');
+        popup.dataset.selected = btn.dataset.status;
+        popup.querySelectorAll('.lust-option').forEach(b => b.classList.toggle('selected', b === btn));
+        popup.style.display = 'none';
+        renderSinsMixer();
+    });
+});
+
+document.addEventListener('click', () => {
+    const popup = document.getElementById('lustPopup');
+    if (popup) popup.style.display = 'none';
+});
+
 // ─── Reset current day by typing "reset" ─────────────────────────────────────
 
 function resetCurrentDay() {
@@ -5230,3 +5296,863 @@ document.getElementById('closeMusicModal').addEventListener('click', () => {
 
     updateDisplay();
 })();
+
+
+// ─── ANALYTICS ────────────────────────────────────────────────────────────────
+
+let _analyticsPeriod = 'week';
+
+// ─── Data helpers ──────────────────────────────────────────────────────────────
+
+function getAnalyticsDates(period) {
+    const end = new Date();
+    const start = new Date();
+    const days = period === 'week' ? 6 : period === 'month' ? 29 : 364;
+    start.setDate(start.getDate() - days);
+    const dates = [];
+    const d = new Date(start);
+    while (d <= end) {
+        dates.push(getDateKey(new Date(d)));
+        d.setDate(d.getDate() + 1);
+    }
+    return dates;
+}
+
+function analyticsScoreData(dates) {
+    const raw = Storage.getItem(STORAGE_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    return dates.map(date => {
+        const day = all[date] || {};
+        const vitals = Array.isArray(day) ? day : (day.vitals || []);
+        const total = vitals.reduce((s, v) => s + (v && v.value != null ? v.value : 0), 0);
+        const byCategory = {};
+        defaultValues.forEach((def, i) => {
+            byCategory[def.name] = (vitals[i] && vitals[i].value != null) ? vitals[i].value : 0;
+        });
+        return { date, total: total > 0 ? total : null, byCategory };
+    });
+}
+
+function analyticsWeightData(dates) {
+    const all = JSON.parse(Storage.getItem(WEIGHT_KEY) || '{}');
+    return dates.map(d => ({ date: d, value: all[d] ?? null }));
+}
+
+function analyticsSleepData(dates) {
+    const all = JSON.parse(Storage.getItem(RECOVERY_KEY) || '{}');
+    return dates.map(d => ({ date: d, value: (all[d] || {}).sleep ?? null }));
+}
+
+function analyticsHydrationData(dates) {
+    const all = JSON.parse(Storage.getItem(RECOVERY_KEY) || '{}');
+    return dates.map(d => {
+        const h = (all[d] || {}).hydration;
+        return { date: d, value: h != null ? (typeof h === 'boolean' ? 5 : +h) : null };
+    });
+}
+
+function analyticsCalorieData(dates) {
+    const all = JSON.parse(Storage.getItem(RECOVERY_KEY) || '{}');
+    return dates.map(d => ({
+        date: d,
+        cal:  (all[d] || {}).nutrition ?? null,
+        prot: (all[d] || {}).protein   ?? null,
+    }));
+}
+
+function analyticsMindfulnessData(dates) {
+    const all = JSON.parse(Storage.getItem('mindfulness_minutes') || '{}');
+    return dates.map(d => ({ date: d, value: all[d] ?? null }));
+}
+
+function analyticsPrayerData(dates) {
+    const all = JSON.parse(Storage.getItem(PRAYER_KEY) || '{}');
+    return dates.map(d => ({ date: d, value: all[d] ?? null }));
+}
+
+function analyticsRecoveryStats(dates) {
+    const all = JSON.parse(Storage.getItem(RECOVERY_KEY) || '{}');
+    let cryo = 0, creatine = 0, days = 0;
+    dates.forEach(d => {
+        const day = all[d] || {};
+        if (Object.keys(day).length > 0) {
+            days++;
+            if (day.cryotherapy) cryo++;
+            if (day.creatine)    creatine++;
+        }
+    });
+    return { cryo, creatine, days, total: dates.length };
+}
+
+function analyticsStreakLength(scoreData) {
+    let max = 0, cur = 0;
+    scoreData.forEach(d => {
+        if (d.total != null && d.total > 0) { cur++; max = Math.max(max, cur); }
+        else cur = 0;
+    });
+    return max;
+}
+
+// ─── Chart utilities ───────────────────────────────────────────────────────────
+
+function _aDateLabel(dateStr, total) {
+    const parts = dateStr.split('-').map(Number);
+    const m = parts[1], day = parts[2];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    if (total <= 8)  return months[m-1] + ' ' + day;
+    if (total <= 31) return String(day);
+    return months[m-1];
+}
+
+function _aLabelIndices(n) {
+    if (n <= 8)  return Array.from({ length: n }, (_, i) => i);
+    if (n <= 31) return [0, Math.round(n * 0.25), Math.round(n * 0.5), Math.round(n * 0.75), n - 1];
+    return [0, Math.round(n/6), Math.round(n/3), Math.round(n/2), Math.round(2*n/3), Math.round(5*n/6), n - 1];
+}
+
+function _emptyChartSVG(W, H) {
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">` +
+        `<text x="${W/2}" y="${H/2+4}" text-anchor="middle" fill="rgba(240,236,228,0.35)" font-size="11" font-family="-apple-system,sans-serif" letter-spacing="1">NO DATA FOR PERIOD</text></svg>`;
+}
+
+// ─── Line chart ────────────────────────────────────────────────────────────────
+
+function _fmtY(v) {
+    if (v === 0) return '0';
+    if (v >= 10000) return Math.round(v / 1000) + 'k';
+    if (v >= 1000)  return (Math.round(v / 100) / 10) + 'k';
+    return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+}
+
+function makeLineSVG(points, color, opts) {
+    const { min = 0, maxVal = null, showDots = true, targetLine = null } = opts || {};
+    const W = 440, H = 62, PL = 28, PR = 6, PT = 5, PB = 20;
+    const CW = W - PL - PR, CH = H - PT - PB;
+    const vals = points.map(p => p.value).filter(v => v != null);
+    if (!vals.length) return _emptyChartSVG(W, H);
+
+    const dMax = maxVal != null ? maxVal : (Math.max(...vals) * 1.15 || 1);
+    const dMin = typeof min === 'number' ? min : Math.min(...vals);
+    const dRange = (dMax - dMin) || 1;
+
+    const toX = i => PL + (i / Math.max(1, points.length - 1)) * CW;
+    const toY = v => PT + CH - ((v - dMin) / dRange) * CH;
+
+    const vps = points.map((p, i) => ({ i, v: p.value })).filter(p => p.v != null);
+
+    let line = '', area = '';
+    if (vps.length >= 2) {
+        const pts = vps.map(p => [toX(p.i), toY(p.v)]);
+        line = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+        for (let k = 1; k < pts.length; k++) {
+            const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
+            line += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
+        }
+        const baseY = (PT + CH).toFixed(1);
+        area = line + ` L ${pts[pts.length-1][0].toFixed(1)} ${baseY} L ${pts[0][0].toFixed(1)} ${baseY} Z`;
+    }
+
+    const gid = 'alg' + Math.random().toString(36).slice(2, 7);
+
+    // Grid + Y-axis labels (3 ticks: bottom, mid, top)
+    const gridSVG = [0, 0.5, 1].map(f => {
+        const y   = (PT + CH * (1 - f)).toFixed(1);
+        const val = dMin + f * dRange;
+        return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>` +
+               `<text x="${PL - 4}" y="${(parseFloat(y) + 3).toFixed(1)}" text-anchor="end" fill="rgba(240,236,228,0.38)" font-size="7" font-family="-apple-system,sans-serif">${_fmtY(val)}</text>`;
+    }).join('');
+
+    const li = _aLabelIndices(points.length);
+    const labelsSVG = li.filter(i => i < points.length).map(i =>
+        `<text x="${toX(i).toFixed(1)}" y="${H - 5}" text-anchor="middle" fill="rgba(240,236,228,0.38)" font-size="8" font-family="-apple-system,sans-serif">${_aDateLabel(points[i].date, points.length)}</text>`
+    ).join('');
+
+    const dotR = points.length <= 14 ? 2 : 1.5;
+    const dotsSVG = showDots ? vps.map(p =>
+        `<circle cx="${toX(p.i).toFixed(1)}" cy="${toY(p.v).toFixed(1)}" r="${dotR}" fill="${color}"/>`
+    ).join('') : '';
+
+    const targetSVG = targetLine != null ? `<line x1="${PL}" y1="${toY(targetLine).toFixed(1)}" x2="${W-PR}" y2="${toY(targetLine).toFixed(1)}" stroke="rgba(240,236,228,0.15)" stroke-width="1" stroke-dasharray="4,3"/>` : '';
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+  <stop offset="100%" stop-color="${color}" stop-opacity="0.03"/>
+</linearGradient></defs>
+${gridSVG}${targetSVG}
+${area  ? `<path d="${area}"  fill="url(#${gid})"/>` : ''}
+${line  ? `<path d="${line}"  fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` : ''}
+${dotsSVG}${labelsSVG}
+</svg>`;
+}
+
+// ─── Bar chart ─────────────────────────────────────────────────────────────────
+
+function makeBarSVG(points, color, opts) {
+    const { maxVal = null, targetLine = null } = opts || {};
+    const W = 440, H = 90, PL = 4, PR = 4, PT = 8, PB = 26;
+    const CW = W - PL - PR, CH = H - PT - PB;
+    const vals = points.map(p => p.value).filter(v => v != null && v > 0);
+    if (!vals.length) return _emptyChartSVG(W, H);
+
+    const dMax = maxVal != null ? maxVal : (Math.max(...vals) * 1.15 || 1);
+    const bW = CW / points.length;
+    const gap = Math.max(0.5, bW * 0.2);
+
+    const barsSVG = points.map((p, i) => {
+        if (!p.value || p.value <= 0) return '';
+        const x = (PL + i * bW + gap / 2).toFixed(1);
+        const w = Math.max(1, bW - gap).toFixed(1);
+        const h = Math.max(1, (p.value / dMax) * CH).toFixed(1);
+        const y = (PT + CH - (p.value / dMax) * CH).toFixed(1);
+        return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${color}" opacity="0.85"/>`;
+    }).join('');
+
+    const li = _aLabelIndices(points.length);
+    const labelsSVG = li.filter(i => i < points.length).map(i => {
+        const x = (PL + i * bW + bW / 2).toFixed(1);
+        return `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="rgba(240,236,228,0.38)" font-size="8" font-family="-apple-system,sans-serif">${_aDateLabel(points[i].date, points.length)}</text>`;
+    }).join('');
+
+    const tY = targetLine != null && targetLine <= dMax
+        ? (PT + CH - (targetLine / dMax) * CH).toFixed(1) : null;
+    const targetSVG = tY ? `<line x1="${PL}" y1="${tY}" x2="${W-PR}" y2="${tY}" stroke="rgba(61,220,132,0.42)" stroke-width="1" stroke-dasharray="4,3"/>` : '';
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
+${barsSVG}${targetSVG}${labelsSVG}
+</svg>`;
+}
+
+// ─── Dual bar chart (calories + protein) ──────────────────────────────────────
+
+function makeDualBarSVG(points) {
+    const W = 440, H = 100, PL = 4, PR = 4, PT = 18, PB = 26;
+    const CW = W - PL - PR, CH = H - PT - PB;
+    const cals  = points.map(p => p.cal ).filter(v => v != null && v > 0);
+    const prots = points.map(p => p.prot).filter(v => v != null && v > 0);
+    if (!cals.length && !prots.length) return _emptyChartSVG(W, H);
+
+    const maxCal  = cals.length  ? Math.max(...cals)  * 1.15 : 1;
+    const maxProt = prots.length ? Math.max(...prots) * 1.15 : 1;
+    const n = points.length;
+    const grpW = CW / n;
+    const barW = Math.max(1, (grpW - 2) / 2);
+
+    const barsSVG = points.map((p, i) => {
+        const x0 = PL + i * grpW;
+        let out = '';
+        if (p.cal  > 0) {
+            const h = Math.max(1, (p.cal  / maxCal)  * CH).toFixed(1);
+            const y = (PT + CH - (p.cal  / maxCal)  * CH).toFixed(1);
+            out += `<rect x="${(x0 + 0.5).toFixed(1)}" y="${y}" width="${barW.toFixed(1)}" height="${h}" rx="1.5" fill="#c9a96e" opacity="0.85"/>`;
+        }
+        if (p.prot > 0) {
+            const h = Math.max(1, (p.prot / maxProt) * CH).toFixed(1);
+            const y = (PT + CH - (p.prot / maxProt) * CH).toFixed(1);
+            out += `<rect x="${(x0 + barW + 1).toFixed(1)}" y="${y}" width="${barW.toFixed(1)}" height="${h}" rx="1.5" fill="#60a5fa" opacity="0.85"/>`;
+        }
+        return out;
+    }).join('');
+
+    const li = _aLabelIndices(n);
+    const labelsSVG = li.filter(i => i < points.length).map(i => {
+        const x = (PL + i * grpW + grpW / 2).toFixed(1);
+        return `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="rgba(240,236,228,0.38)" font-size="8" font-family="-apple-system,sans-serif">${_aDateLabel(points[i].date, n)}</text>`;
+    }).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
+<text x="${PL+4}"    y="12" fill="rgba(201,169,110,0.65)" font-size="7.5" font-family="-apple-system,sans-serif">&#9679; CALORIES</text>
+<text x="${PL+90}"   y="12" fill="rgba(96,165,250,0.65)"  font-size="7.5" font-family="-apple-system,sans-serif">&#9679; PROTEIN (g)</text>
+${barsSVG}${labelsSVG}
+</svg>`;
+}
+
+// ─── Donut / pie chart ─────────────────────────────────────────────────────────
+
+function makeDonutSVG(segments, centerLines) {
+    const W = 160, H = 160, cx = 80, cy = 80, outerR = 63, innerR = 38;
+    const total = segments.reduce((s, g) => s + (g.value || 0), 0);
+    if (!total) return _emptyChartSVG(W, H);
+
+    let angle = -Math.PI / 2;
+    const pathsSVG = segments.map(seg => {
+        if (!seg.value) return '';
+        const sweep = (seg.value / total) * 2 * Math.PI;
+        const end   = angle + sweep;
+        const large = sweep > Math.PI ? 1 : 0;
+        const [x1, y1] = [cx + outerR * Math.cos(angle), cy + outerR * Math.sin(angle)];
+        const [x2, y2] = [cx + outerR * Math.cos(end),   cy + outerR * Math.sin(end)];
+        const [x3, y3] = [cx + innerR * Math.cos(end),   cy + innerR * Math.sin(end)];
+        const [x4, y4] = [cx + innerR * Math.cos(angle), cy + innerR * Math.sin(angle)];
+        const d = `M${x1.toFixed(2)},${y1.toFixed(2)} A${outerR},${outerR} 0 ${large},1 ${x2.toFixed(2)},${y2.toFixed(2)} L${x3.toFixed(2)},${y3.toFixed(2)} A${innerR},${innerR} 0 ${large},0 ${x4.toFixed(2)},${y4.toFixed(2)}Z`;
+        angle = end;
+        return `<path d="${d}" fill="${seg.color}"/>`;
+    }).join('');
+
+    const linesArr = (centerLines || []);
+    const centerSVG = linesArr.map((l, i) => {
+        const dy = cy + (i - (linesArr.length - 1) / 2) * 14;
+        return `<text x="${cx}" y="${dy + 4}" text-anchor="middle" fill="rgba(240,236,228,0.65)" font-size="10" font-family="-apple-system,sans-serif">${l}</text>`;
+    }).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="160" height="160" class="analytics-chart-svg" style="max-width:160px" xmlns="http://www.w3.org/2000/svg">
+<circle cx="${cx}" cy="${cy}" r="${outerR}" fill="var(--surface-3)"/>
+${pathsSVG}
+<circle cx="${cx}" cy="${cy}" r="${innerR}" fill="var(--surface)"/>
+${centerSVG}
+</svg>`;
+}
+
+// ─── Mini radar ────────────────────────────────────────────────────────────────
+
+function makeMiniRadarSVG(catAvgs) {
+    const W = 160, H = 160, cx = 80, cy = 80, maxR = 58;
+    const n = defaultValues.length;
+    const getP = (i, v) => {
+        const a = (2 * Math.PI / n) * i - Math.PI / 2;
+        const r = (v / 10) * maxR;
+        return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+    };
+
+    const gridSVG = [2, 4, 6, 8, 10].map(v =>
+        `<circle cx="${cx}" cy="${cy}" r="${(v/10)*maxR}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`
+    ).join('') + defaultValues.map((_, i) => {
+        const a = (2 * Math.PI / n) * i - Math.PI / 2;
+        return `<line x1="${cx}" y1="${cy}" x2="${(cx + maxR * Math.cos(a)).toFixed(2)}" y2="${(cy + maxR * Math.sin(a)).toFixed(2)}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`;
+    }).join('');
+
+    const polyPts = defaultValues.map((def, i) => {
+        const [x, y] = getP(i, catAvgs[def.name] || 0);
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(' ');
+
+    const labelR = maxR + 15;
+    const labelsSVG = defaultValues.map((def, i) => {
+        const a  = (2 * Math.PI / n) * i - Math.PI / 2;
+        const lx = cx + labelR * Math.cos(a);
+        const ly = cy + labelR * Math.sin(a);
+        const anchor = Math.cos(a) > 0.3 ? 'start' : (Math.cos(a) < -0.3 ? 'end' : 'middle');
+        return `<text x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="${anchor}" fill="rgba(240,236,228,0.45)" font-size="6.5" font-family="-apple-system,sans-serif">${def.name.slice(0, 5).toUpperCase()}</text>`;
+    }).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="160" height="160" class="analytics-chart-svg" style="max-width:160px" xmlns="http://www.w3.org/2000/svg">
+${gridSVG}
+<polygon points="${polyPts}" fill="rgba(201,169,110,0.12)" stroke="rgba(201,169,110,0.65)" stroke-width="1.5" stroke-linejoin="round"/>
+${labelsSVG}
+</svg>`;
+}
+
+// ─── 7-category multi-line chart ──────────────────────────────────────────────
+
+const CAT_LINE_COLORS = [
+    '#c9a96e',  // Spirituality  — gold
+    '#5dbea3',  // Recovery      — teal
+    '#7aa8d4',  // Mindset       — steel blue
+    '#a87ed4',  // Mindfulness   — purple
+    '#d47a7a',  // Reflection    — rose
+    '#d4c05a',  // Mobility      — amber
+    '#d4916a',  // Creativity    — warm orange
+];
+
+function makeCategoryTrendSVG(scoreData) {
+    const W = 440, H = 92, PL = 28, PR = 6, PT = 6, PB = 20;
+    const CW = W - PL - PR, CH = H - PT - PB;
+    const n = scoreData.length;
+    if (!n) return _emptyChartSVG(W, H);
+
+    const toX = i => PL + (i / Math.max(1, n - 1)) * CW;
+    const toY = v => PT + CH - (v / 10) * CH;   // always 0–10 scale
+
+    // Grid + Y labels at 0, 5, 10
+    const gridSVG = [0, 0.5, 1].map(f => {
+        const y   = (PT + CH * (1 - f)).toFixed(1);
+        const val = f * 10;
+        return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>` +
+               `<text x="${PL-4}" y="${(parseFloat(y)+3).toFixed(1)}" text-anchor="end" fill="rgba(240,236,228,0.38)" font-size="7" font-family="-apple-system,sans-serif">${val}</text>`;
+    }).join('');
+
+    // One smooth path per category
+    const linesSVG = defaultValues.map((def, ci) => {
+        const color = CAT_LINE_COLORS[ci];
+        const vps = scoreData.map((d, i) => ({ i, v: d.byCategory[def.name] }))
+                             .filter(p => p.v > 0);
+        if (vps.length < 2) return '';
+        const pts = vps.map(p => [toX(p.i), toY(p.v)]);
+        let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+        for (let k = 1; k < pts.length; k++) {
+            const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
+            d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
+        }
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }).join('');
+
+    // X-axis date labels
+    const li = _aLabelIndices(n);
+    const xLabelsSVG = li.filter(i => i < n).map(i =>
+        `<text x="${toX(i).toFixed(1)}" y="${H-5}" text-anchor="middle" fill="rgba(240,236,228,0.35)" font-size="8" font-family="-apple-system,sans-serif">${_aDateLabel(scoreData[i].date, n)}</text>`
+    ).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
+${gridSVG}${linesSVG}${xLabelsSVG}
+</svg>`;
+}
+
+// Builds the legend HTML that sits below makeCategoryTrendSVG
+function makeCatLegendHTML() {
+    return `<div class="cat-legend">${
+        defaultValues.map((def, i) =>
+            `<span class="cat-legend-item" style="color:${CAT_LINE_COLORS[i]}">&#9679; ${def.name}</span>`
+        ).join('')
+    }</div>`;
+}
+
+// ─── 7-sin multi-line chart ────────────────────────────────────────────────────
+
+const SIN_LINE_COLORS = [
+    '#e07878',  // Pride     — red
+    '#d4a85a',  // Greed     — amber
+    '#e080a8',  // Lust      — pink
+    '#78c078',  // Envy      — green
+    '#c09870',  // Gluttony  — brown
+    '#e05858',  // Wrath     — dark red
+    '#8898b8',  // Sloth     — slate
+];
+
+function _analyticsLevels(key, dates) {
+    let parsed = {};
+    try { parsed = JSON.parse(Storage.getItem(key) || '{}'); } catch(e) {}
+    if (!_looksLikePerDay(parsed)) {
+        return dates.map(d => ({ date: d, levels: parsed }));
+    }
+    // Per-day with most-recent-past fallback so unchanged days carry forward
+    return dates.map(d => ({ date: d, levels: _mostRecentLevels(parsed, d) }));
+}
+
+function analyticsSinData(dates)    { return _analyticsLevels(SIN_LEVELS_KEY,    dates); }
+function analyticsVirtueData(dates) { return _analyticsLevels(VIRTUE_LEVELS_KEY, dates); }
+
+function makeSinTrendSVG(sinData) {
+    const W = 440, H = 92, PL = 28, PR = 6, PT = 6, PB = 20;
+    const CW = W - PL - PR, CH = H - PT - PB;
+    const n = sinData.length;
+    if (!n) return _emptyChartSVG(W, H);
+
+    const toX = i => PL + (i / Math.max(1, n - 1)) * CW;
+    const toY = v => PT + CH - (v / 10) * CH;
+
+    const gridSVG = [0, 0.5, 1].map(f => {
+        const y = (PT + CH * (1 - f)).toFixed(1);
+        return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>` +
+               `<text x="${PL-4}" y="${(parseFloat(y)+3).toFixed(1)}" text-anchor="end" fill="rgba(240,236,228,0.38)" font-size="7" font-family="-apple-system,sans-serif">${f*10}</text>`;
+    }).join('');
+
+    const linesSVG = avoidedActivitiesList.map((name, ci) => {
+        const color = SIN_LINE_COLORS[ci];
+        const vps = sinData.map((d, i) => ({ i, v: d.levels[name] || 0 })).filter(p => p.v > 0);
+        if (vps.length < 2) return '';
+        const pts = vps.map(p => [toX(p.i), toY(p.v)]);
+        let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+        for (let k = 1; k < pts.length; k++) {
+            const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
+            d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
+        }
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }).join('');
+
+    const li = _aLabelIndices(n);
+    const xLabelsSVG = li.filter(i => i < n).map(i =>
+        `<text x="${toX(i).toFixed(1)}" y="${H-5}" text-anchor="middle" fill="rgba(240,236,228,0.35)" font-size="8" font-family="-apple-system,sans-serif">${_aDateLabel(sinData[i].date, n)}</text>`
+    ).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
+${gridSVG}${linesSVG}${xLabelsSVG}
+</svg>`;
+}
+
+function makeSinLegendHTML() {
+    return `<div class="cat-legend">${
+        avoidedActivitiesList.map((name, i) =>
+            `<span class="cat-legend-item" style="color:${SIN_LINE_COLORS[i]}">&#9679; ${name}</span>`
+        ).join('')
+    }</div>`;
+}
+
+// ─── 7-virtue multi-line chart ─────────────────────────────────────────────────
+
+const VIRTUE_LINE_COLORS = [
+    '#7ab4d4',  // Faith      — sky blue
+    '#78d4a8',  // Hope       — mint
+    '#d4b87a',  // Charity    — warm gold
+    '#b07ad4',  // Patience   — violet
+    '#7ad4c8',  // Humility   — teal
+    '#d4d07a',  // Diligence  — yellow
+    '#7aa8d4',  // Integrity  — steel blue
+];
+
+function makeVirtueTrendSVG(virtueData) {
+    const W = 440, H = 92, PL = 28, PR = 6, PT = 6, PB = 20;
+    const CW = W - PL - PR, CH = H - PT - PB;
+    const n = virtueData.length;
+    if (!n) return _emptyChartSVG(W, H);
+
+    const toX = i => PL + (i / Math.max(1, n - 1)) * CW;
+    const toY = v => PT + CH - (v / 10) * CH;
+
+    const gridSVG = [0, 0.5, 1].map(f => {
+        const y = (PT + CH * (1 - f)).toFixed(1);
+        return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>` +
+               `<text x="${PL-4}" y="${(parseFloat(y)+3).toFixed(1)}" text-anchor="end" fill="rgba(240,236,228,0.38)" font-size="7" font-family="-apple-system,sans-serif">${f*10}</text>`;
+    }).join('');
+
+    const linesSVG = christLikeAttributesList.map((name, ci) => {
+        const color = VIRTUE_LINE_COLORS[ci];
+        const vps = virtueData.map((d, i) => ({ i, v: d.levels[name] || 0 })).filter(p => p.v > 0);
+        if (vps.length < 2) return '';
+        const pts = vps.map(p => [toX(p.i), toY(p.v)]);
+        let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+        for (let k = 1; k < pts.length; k++) {
+            const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
+            d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
+        }
+        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }).join('');
+
+    const li = _aLabelIndices(n);
+    const xLabelsSVG = li.filter(i => i < n).map(i =>
+        `<text x="${toX(i).toFixed(1)}" y="${H-5}" text-anchor="middle" fill="rgba(240,236,228,0.35)" font-size="8" font-family="-apple-system,sans-serif">${_aDateLabel(virtueData[i].date, n)}</text>`
+    ).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
+${gridSVG}${linesSVG}${xLabelsSVG}
+</svg>`;
+}
+
+function makeVirtueLegendHTML() {
+    return `<div class="cat-legend">${
+        christLikeAttributesList.map((name, i) =>
+            `<span class="cat-legend-item" style="color:${VIRTUE_LINE_COLORS[i]}">&#9679; ${name}</span>`
+        ).join('')
+    }</div>`;
+}
+
+// ─── Gym progression section ───────────────────────────────────────────────────
+
+function makeGymSection(dates) {
+    const logs   = getExerciseLogs();
+    const dateSet = new Set(dates);
+
+    // muscleVolumes[muscle][date] = sum of (weight × reps) across all logged sets
+    const muscleVolumes = {};
+    Object.entries(logs).forEach(([key, sets]) => {
+        const parts = key.split('__');
+        if (parts.length < 3) return;
+        const [date, muscle] = parts;
+        if (!dateSet.has(date)) return;
+        const volume = (Array.isArray(sets) ? sets : []).reduce((s, set) => {
+            return s + (parseFloat(set.weight) || 0) * (parseFloat(set.reps) || 0);
+        }, 0);
+        if (!volume) return;
+        if (!muscleVolumes[muscle]) muscleVolumes[muscle] = {};
+        muscleVolumes[muscle][date] = (muscleVolumes[muscle][date] || 0) + volume;
+    });
+
+    const muscles = Object.keys(muscleVolumes);
+    if (!muscles.length) return null;
+
+    const sec = document.createElement('div');
+    sec.className = 'asec';
+    sec.innerHTML = '<div class="asec-ttl">GYM VOLUME</div>';
+
+    const select = document.createElement('select');
+    select.className = 'asec-select';
+    muscles.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m.toUpperCase();
+        select.appendChild(opt);
+    });
+
+    const chartDiv = document.createElement('div');
+
+    function showMuscle(muscle) {
+        const dateVolumes  = muscleVolumes[muscle] || {};
+        const sessionDates = Object.keys(dateVolumes).sort();
+        if (!sessionDates.length) { chartDiv.innerHTML = _emptyChartSVG(440, 90); return; }
+        const points = sessionDates.map(d => ({ date: d, value: dateVolumes[d] }));
+        chartDiv.innerHTML = makeLineSVG(points, '#c9a96e', { showDots: true });
+    }
+
+    select.addEventListener('change', () => showMuscle(select.value));
+    showMuscle(muscles[0]);
+    sec.appendChild(select);
+    sec.appendChild(chartDiv);
+    return sec;
+}
+
+// ─── Reflection viewer ─────────────────────────────────────────────────────────
+
+const RF_QUESTIONS = [
+    { key: 'happy',    label: 'What made me happy today?'         },
+    { key: 'grateful', label: 'What am I grateful for today?'     },
+    { key: 'learned',  label: 'What did I learn today?'           },
+    { key: 'helped',   label: 'How did I help someone else today?' },
+    { key: 'better',   label: 'What will I do better tomorrow?'   },
+];
+
+function makeReflectionSection(dates) {
+    const allData = JSON.parse(Storage.getItem('reflection_321') || '{}');
+    const byQuestion = {};
+    RF_QUESTIONS.forEach(q => { byQuestion[q.key] = []; });
+    dates.forEach(date => {
+        const day = allData[date] || {};
+        RF_QUESTIONS.forEach(q => {
+            (day[q.key] || []).filter(e => e && e.trim()).forEach(text => {
+                byQuestion[q.key].push({ date, text });
+            });
+        });
+    });
+
+    const sec = document.createElement('div');
+    sec.className = 'asec';
+    sec.innerHTML = '<div class="asec-ttl">REFLECTION</div>';
+
+    const select = document.createElement('select');
+    select.className = 'asec-select';
+    RF_QUESTIONS.forEach(q => {
+        const opt = document.createElement('option');
+        opt.value = q.key;
+        opt.textContent = q.label;
+        select.appendChild(opt);
+    });
+
+    const list = document.createElement('div');
+    list.className = 'rf-response-list';
+
+    function showQuestion(key) {
+        list.innerHTML = '';
+        const entries = byQuestion[key];
+        if (!entries.length) {
+            list.innerHTML = '<div class="rf-empty">no responses for this period</div>';
+            return;
+        }
+        [...entries].reverse().forEach(({ date, text }) => {
+            const [y, m, d] = date.split('-').map(Number);
+            const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const item = document.createElement('div');
+            item.className = 'rf-response-item';
+            item.innerHTML = `<div class="rf-item-date">${months[m-1]} ${d}, ${y}</div><div class="rf-item-text">${text}</div>`;
+            list.appendChild(item);
+        });
+    }
+
+    select.addEventListener('change', () => showQuestion(select.value));
+    showQuestion(RF_QUESTIONS[0].key);
+    sec.appendChild(select);
+    sec.appendChild(list);
+    return sec;
+}
+
+// ─── Render orchestrator ───────────────────────────────────────────────────────
+
+function _aAppendSec(parent, title, html) {
+    const sec = document.createElement('div');
+    sec.className = 'asec';
+    sec.innerHTML = `<div class="asec-ttl">${title}</div>${html}`;
+    parent.appendChild(sec);
+    return sec;
+}
+
+function renderAnalytics(period) {
+    const dates    = getAnalyticsDates(period);
+    const body     = document.getElementById('analytics-body');
+    if (!body) return;
+    body.innerHTML = '';
+
+    const scoreData  = analyticsScoreData(dates);
+    const wData      = analyticsWeightData(dates);
+    const sleepData  = analyticsSleepData(dates);
+    const hydroData  = analyticsHydrationData(dates);
+    const calData    = analyticsCalorieData(dates);
+    const mfData     = analyticsMindfulnessData(dates);
+    const prayerData = analyticsPrayerData(dates);
+    const recStats   = analyticsRecoveryStats(dates);
+
+    // Category averages
+    const catTotals = {}, catCounts = {};
+    defaultValues.forEach(d => { catTotals[d.name] = 0; catCounts[d.name] = 0; });
+    scoreData.forEach(d => {
+        defaultValues.forEach(def => {
+            const v = d.byCategory[def.name];
+            if (v > 0) { catTotals[def.name] += v; catCounts[def.name]++; }
+        });
+    });
+    const catAvgs = {};
+    defaultValues.forEach(def => {
+        catAvgs[def.name] = catCounts[def.name] ? catTotals[def.name] / catCounts[def.name] : 0;
+    });
+
+    const GOLD = '#c9a96e';
+    const showDots = dates.length <= 31;
+
+    // Three-column wrapper
+    const cols = document.createElement('div');
+    cols.className = 'analytics-cols';
+    const col1 = document.createElement('div');
+    col1.className = 'analytics-col';
+    const col2 = document.createElement('div');
+    col2.className = 'analytics-col';
+    const col3 = document.createElement('div');
+    col3.className = 'analytics-col';
+    cols.appendChild(col1);
+    cols.appendChild(col2);
+    cols.appendChild(col3);
+    body.appendChild(cols);
+
+    // ── COLUMN 1: daily metrics ───────────────────────────────────────────────
+
+    const catTrendSec = document.createElement('div');
+    catTrendSec.className = 'asec';
+    catTrendSec.innerHTML = `<div class="asec-ttl">CATEGORY TRENDS</div>` +
+        makeCategoryTrendSVG(scoreData) + makeCatLegendHTML();
+    col1.appendChild(catTrendSec);
+
+    _aAppendSec(col1, 'MINDFULNESS (MIN)',
+        makeLineSVG(mfData, GOLD, { min: 0, maxVal: 30, showDots })
+    );
+    _aAppendSec(col1, 'CALORIES',
+        makeLineSVG(calData.map(d => ({ date: d.date, value: d.cal })), GOLD, { min: 0, showDots })
+    );
+    _aAppendSec(col1, 'WATER (CUPS)',
+        makeLineSVG(hydroData, GOLD, { min: 0, maxVal: 15, showDots })
+    );
+
+    // ── COLUMN 2: character trends ────────────────────────────────────────────
+
+    const sinTrendSec = document.createElement('div');
+    sinTrendSec.className = 'asec';
+    sinTrendSec.innerHTML = `<div class="asec-ttl">SIN LEVELS</div>` +
+        makeSinTrendSVG(analyticsSinData(dates)) + makeSinLegendHTML();
+    col2.appendChild(sinTrendSec);
+
+    const virtueTrendSec = document.createElement('div');
+    virtueTrendSec.className = 'asec';
+    virtueTrendSec.innerHTML = `<div class="asec-ttl">VIRTUE LEVELS</div>` +
+        makeVirtueTrendSVG(analyticsVirtueData(dates)) + makeVirtueLegendHTML();
+    col2.appendChild(virtueTrendSec);
+
+    _aAppendSec(col2, 'BODY WEIGHT (LBS)',
+        makeLineSVG(wData, GOLD, { min: 150, maxVal: 180, showDots })
+    );
+    _aAppendSec(col2, 'SLEEP (HRS)',
+        makeLineSVG(sleepData, GOLD, { min: 6, maxVal: 10, targetLine: 8, showDots })
+    );
+
+    // ── COLUMN 3: activity & reflection ──────────────────────────────────────
+
+    const gymSec = makeGymSection(dates);
+    if (gymSec) col3.appendChild(gymSec);
+
+    col3.appendChild(makeReflectionSection(dates));
+
+}
+
+// ─── Open / Close ──────────────────────────────────────────────────────────────
+
+function openAnalytics() {
+    const modal = document.getElementById('analyticsModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    renderAnalytics(_analyticsPeriod);
+    requestAnimationFrame(() => requestAnimationFrame(() => modal.classList.add('a-open')));
+}
+
+function closeAnalytics() {
+    const modal = document.getElementById('analyticsModal');
+    if (!modal) return;
+    modal.classList.remove('a-open');
+    setTimeout(() => {
+        if (!modal.classList.contains('a-open')) modal.style.display = 'none';
+    }, 300);
+}
+
+document.getElementById('analyticsTabs').addEventListener('click', e => {
+    const tab = e.target.closest('[data-period]');
+    if (!tab) return;
+    document.querySelectorAll('.atab').forEach(t => t.classList.remove('atab--active'));
+    tab.classList.add('atab--active');
+    _analyticsPeriod = tab.dataset.period;
+    renderAnalytics(_analyticsPeriod);
+});
+
+document.getElementById('closeAnalytics').addEventListener('click', closeAnalytics);
+
+document.addEventListener('keydown', e => {
+    const modal = document.getElementById('analyticsModal');
+    if (e.key === 'Escape' && modal && modal.style.display !== 'none') closeAnalytics();
+});
+
+// ─── Center long-press trigger ─────────────────────────────────────────────────
+
+(function () {
+    function showHoldRing() {
+        let ring = document.getElementById('analytics-hold-ring');
+        if (!ring) {
+            ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            ring.setAttribute('id', 'analytics-hold-ring');
+            ring.setAttribute('cx', String(centerX));
+            ring.setAttribute('cy', String(centerY));
+            ring.setAttribute('fill', 'none');
+            ring.setAttribute('stroke', 'rgba(201,169,110,0.55)');
+            ring.setAttribute('stroke-width', '1.5');
+            ring.setAttribute('r', '5');
+            svg.appendChild(ring);
+        }
+        ring.style.animation = 'none';
+        void ring.getBoundingClientRect(); // force reflow so animation restarts
+        ring.style.animation = 'analyticsHoldExpand 0.7s ease-out forwards';
+    }
+
+    function hideHoldRing() {
+        const ring = document.getElementById('analytics-hold-ring');
+        if (ring) ring.remove();
+    }
+
+    svg.addEventListener('pointerdown', (e) => {
+        // Convert click point to SVG coords (same approach as the drag handler)
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return;
+        const p = pt.matrixTransform(ctm.inverse());
+
+        // Only activate if within 26 SVG units of the center
+        if (Math.hypot(p.x - centerX, p.y - centerY) > 26) return;
+
+        const startX = e.clientX, startY = e.clientY;
+        showHoldRing();
+
+        const timer = setTimeout(() => {
+            cleanup();
+            hideHoldRing();
+            openAnalytics();
+        }, 700);
+
+        function onMove(ev) {
+            if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 12) cleanup();
+        }
+        function onUp() { cleanup(); }
+
+        function cleanup() {
+            clearTimeout(timer);
+            hideHoldRing();
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup',     onUp);
+            window.removeEventListener('pointercancel', onUp);
+        }
+
+        window.addEventListener('pointermove',   onMove);
+        window.addEventListener('pointerup',     onUp);
+        window.addEventListener('pointercancel', onUp);
+    });
+}());
