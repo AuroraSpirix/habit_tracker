@@ -318,7 +318,7 @@ const defaultValues = [
     { name: 'Spirituality', value: 2, note: '' },
     { name: 'Recovery', value: 2, note: '' },
     { name: 'Mindset', value: 2, note: '' },
-    { name: 'Mindfulness', value: 0, note: '' },
+    { name: 'Mindfulness', value: 2, note: '' },
     { name: 'Reflection', value: 2, note: '' },
     { name: 'Mobility', value: 2, note: '' },
     { name: 'Creativity', value: 2, note: '' }
@@ -463,6 +463,10 @@ function getDateKey(date) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+function isViewingPast() {
+    return getDateKey(viewDate) < getDateKey(new Date());
 }
 
 // Returns true if a category has any data saved for the current viewDate
@@ -940,13 +944,14 @@ document.getElementById('nextDay').addEventListener('click', () => {
     const MODAL_IDS = ['exerciseModal','spiritualModal','mindfulnessModal','recoveryModal','reflectionModal','mindsetModal','calendarModal','noteModal','avoidedModal','creativityModal'];
 
     const container = document.querySelector('.app-container');
-    let startX = 0, startY = 0, tracking = false, dragging = false, capturedId = null;
+    let startX = 0, startY = 0, tracking = false, dragging = false, capturedId = null, _lastDx = 0;
 
     container.addEventListener('pointerdown', (e) => {
         if (tracking) return;
         if (MODAL_IDS.some(id => document.getElementById(id).style.display === 'flex')) return;
         if (e.target.closest('#sins-mixer')) return; // mixer has its own swipe
         startX = e.clientX; startY = e.clientY;
+        _lastDx = 0;
         tracking = true; dragging = false; capturedId = e.pointerId;
     });
 
@@ -960,6 +965,7 @@ document.getElementById('nextDay').addEventListener('click', () => {
             dragging = true;
             try { container.setPointerCapture(e.pointerId); } catch (_) {}
         }
+        _lastDx = dx;
         e.preventDefault();
     }, { passive: false });
 
@@ -968,7 +974,8 @@ document.getElementById('nextDay').addEventListener('click', () => {
         tracking = false; capturedId = null;
         if (!dragging) return;
         dragging = false;
-        const dx = e.clientX - startX;
+        // pointercancel on iOS reports clientX=0, so use last recorded dx instead
+        const dx = e.type === 'pointercancel' ? _lastDx : e.clientX - startX;
         if (Math.abs(dx) >= COMMIT_THRESHOLD) {
             viewDate.setDate(viewDate.getDate() + (dx < 0 ? 1 : -1));
             loadDayData();
@@ -2262,6 +2269,9 @@ function openMuscleScreen(muscle) {
     activeMuscle = muscle;
     document.getElementById('ex-muscle-title').textContent = muscle.toUpperCase();
     renderExerciseList();
+    // Hide the add-exercise row when viewing a past day
+    const addRow = document.querySelector('#ex-screen-exercises .ex-add-row');
+    if (addRow) addRow.style.display = isViewingPast() ? 'none' : '';
     showExScreen('ex-screen-exercises');
 }
 
@@ -2307,17 +2317,21 @@ function renderExerciseList() {
         del.className = 'exercise-delete-btn';
         del.textContent = '×';
         del.title = 'Remove exercise';
-        del.onclick = (e) => {
-            e.stopPropagation();
-            if (!del.dataset.confirming) {
-                del.dataset.confirming = '1';
-                del.textContent = '?';
-                del.classList.add('confirming');
-                setTimeout(() => { del.textContent = '×'; del.classList.remove('confirming'); delete del.dataset.confirming; }, 2500);
-            } else {
-                deleteExercise(ex);
-            }
-        };
+        if (isViewingPast()) {
+            del.style.display = 'none';
+        } else {
+            del.onclick = (e) => {
+                e.stopPropagation();
+                if (!del.dataset.confirming) {
+                    del.dataset.confirming = '1';
+                    del.textContent = '?';
+                    del.classList.add('confirming');
+                    setTimeout(() => { del.textContent = '×'; del.classList.remove('confirming'); delete del.dataset.confirming; }, 2500);
+                } else {
+                    deleteExercise(ex);
+                }
+            };
+        }
 
         const handle = document.createElement('span');
         handle.className = 'ex-drag-handle';
@@ -2609,6 +2623,7 @@ function renderSets() {
         label.textContent = `SET ${i + 1}`;
         // Click to toggle checked state — this is what counts as "worked out today"
         label.onclick = () => {
+            if (isViewingPast()) return;
             const allChecks = getExerciseChecks();
             const current = allChecks[logKey] || [false, false, false];
             current[i] = !current[i];
@@ -2657,17 +2672,35 @@ function renderSets() {
             btn.onclick = () => {
                 const current = parseFloat(input.value) || 0;
                 input.value = Math.max(0, current + delta);
+                saveSets();
             };
             return btn;
         }
 
-        group.appendChild(makeStepper(weightInput, -1));
+        const past = isViewingPast();
+        if (past) {
+            weightInput.readOnly = true;
+            repsInput.readOnly   = true;
+        } else {
+            weightInput.addEventListener('input', saveSets);
+            repsInput.addEventListener('input', saveSets);
+        }
+
+        const wMinus = makeStepper(weightInput, -1);
+        const wPlus  = makeStepper(weightInput, 1);
+        const rMinus = makeStepper(repsInput,   -1);
+        const rPlus  = makeStepper(repsInput,    1);
+        if (past) {
+            [wMinus, wPlus, rMinus, rPlus].forEach(b => b.style.display = 'none');
+        }
+
+        group.appendChild(wMinus);
         group.appendChild(weightInput);
-        group.appendChild(makeStepper(weightInput, 1));
+        group.appendChild(wPlus);
         group.appendChild(divider);
-        group.appendChild(makeStepper(repsInput, -1));
+        group.appendChild(rMinus);
         group.appendChild(repsInput);
-        group.appendChild(makeStepper(repsInput, 1));
+        group.appendChild(rPlus);
         row.appendChild(label);
         row.appendChild(group);
         container.appendChild(row);
@@ -3553,6 +3586,23 @@ function getFoodLibrary() {
 function saveFoodLibrary(foods) {
     Storage.setItem(FOOD_LIBRARY_KEY, JSON.stringify(foods));
 }
+
+// Food log entries store nutrition at the time of logging so future edits to
+// the food library don't retroactively change past calorie totals.
+// New format:  { foodId: { p: portions, c: calories, g: protein } }
+// Old format:  { foodId: portions }  (number) — still readable, falls back to library
+function _logPortions(entry) {
+    if (entry !== null && typeof entry === 'object') return entry.p || 0;
+    return typeof entry === 'number' ? entry : 0;
+}
+function _makeLogEntry(portions, food) {
+    return { p: portions, c: food ? (food.calories || 0) : 0, g: food ? (food.protein || 0) : 0 };
+}
+function _updateLogPortions(entry, newPortions, food) {
+    if (entry !== null && typeof entry === 'object') return { ...entry, p: newPortions };
+    return _makeLogEntry(newPortions, food);
+}
+
 function getTodayFoodLog() {
     const raw = Storage.getItem(FOOD_LOG_KEY);
     const all = raw ? JSON.parse(raw) : {};
@@ -3569,7 +3619,7 @@ function getTodayFoodLog() {
 function setTodayFoodLog(log) {
     const raw = Storage.getItem(FOOD_LOG_KEY);
     const all = raw ? JSON.parse(raw) : {};
-    const hasAny = Object.values(log).some(v => v > 0);
+    const hasAny = Object.values(log).some(v => _logPortions(v) > 0);
     if (hasAny) { all[getDateKey(viewDate)] = log; }
     else { delete all[getDateKey(viewDate)]; }
     Storage.setItem(FOOD_LOG_KEY, JSON.stringify(all));
@@ -3578,9 +3628,20 @@ function calcFoodTotals() {
     const foods = getFoodLibrary();
     const log = getTodayFoodLog();
     let cal = 0, prot = 0;
-    Object.entries(log).forEach(([id, portions]) => {
-        const f = foods.find(x => x.id === id);
-        if (f && portions > 0) { cal += (f.calories || 0) * portions; prot += (f.protein || 0) * portions; }
+    Object.entries(log).forEach(([id, entry]) => {
+        const portions = _logPortions(entry);
+        if (portions <= 0) return;
+        let calEach, protEach;
+        if (entry !== null && typeof entry === 'object' && 'c' in entry) {
+            calEach = entry.c || 0;
+            protEach = entry.g || 0;
+        } else {
+            const f = foods.find(x => x.id === id);
+            calEach  = f ? (f.calories || 0) : 0;
+            protEach = f ? (f.protein  || 0) : 0;
+        }
+        cal  += calEach  * portions;
+        prot += protEach * portions;
     });
     return { cal, prot };
 }
@@ -3611,6 +3672,9 @@ function showRcScreen(id) {
 function openCalorieScreen() {
     renderFoodList();
     showRcScreen('rc-screen-calories');
+    const past = isViewingPast();
+    document.getElementById('rcOpenAddFoodBtn').style.display = past ? 'none' : '';
+    document.getElementById('rcViewPastBtn').style.display    = past ? 'none' : '';
 }
 
 function renderFoodList() {
@@ -3618,7 +3682,7 @@ function renderFoodList() {
     list.innerHTML = '';
     const foods = getFoodLibrary();
     const log   = getTodayFoodLog();
-    const eaten = foods.filter(f => (log[f.id] || 0) > 0);
+    const eaten = foods.filter(f => _logPortions(log[f.id]) > 0);
 
     if (eaten.length === 0) {
         list.innerHTML = '<p class="empty-state">No foods logged today.</p>';
@@ -3633,7 +3697,7 @@ function fmtPortions(n) {
 }
 
 function buildFoodRow(food, log) {
-    const portions   = log[food.id] || 0;
+    const portions   = _logPortions(log[food.id]);
     const isSelected = portions > 0;
 
     const row = document.createElement('div');
@@ -3700,7 +3764,7 @@ function buildFoodRow(food, log) {
 
         const applyPortionDelta = (delta) => {
             const log = getTodayFoodLog();
-            const cur = log[food.id] || 0.5;
+            const cur = _logPortions(log[food.id]) || 0.5;
             const next = Math.round((cur + delta) * 10) / 10;
             if (next <= 0) {
                 delete log[food.id];
@@ -3708,7 +3772,7 @@ function buildFoodRow(food, log) {
                 renderFoodList(); // full re-render to remove selected state
                 return;
             }
-            log[food.id] = next;
+            log[food.id] = _updateLogPortions(log[food.id], next, food);
             setTodayFoodLog(log);
             countEl.textContent = fmtPortions(next); // update in place
             syncCaloriesToSlider();
@@ -3722,7 +3786,7 @@ function buildFoodRow(food, log) {
     row.addEventListener('click', e => {
         if (e.target.closest('.rc-food-portions') || e.target.closest('.rc-drag-handle')) return;
         const log = getTodayFoodLog();
-        if (log[food.id]) {
+        if (_logPortions(log[food.id]) > 0) {
             // Deselect — keep row visible so it can be re-selected; disappears on next open
             delete log[food.id];
             setTodayFoodLog(log);
@@ -3732,7 +3796,7 @@ function buildFoodRow(food, log) {
             syncCaloriesToSlider();
         } else {
             // Re-select — full re-render to restore portion control
-            log[food.id] = 1;
+            log[food.id] = _makeLogEntry(1, food);
             setTodayFoodLog(log);
             renderFoodList();
         }
@@ -3799,6 +3863,7 @@ function openFoodEditInRow(food, row, onDone) {
             f.category = catPicker.getCat();
         }
         saveFoodLibrary(foods);
+        syncCaloriesToSlider();
         (onDone || renderFoodList)();
     };
 
@@ -3818,10 +3883,11 @@ document.getElementById('rcAddFoodBtn').addEventListener('click', () => {
     if (!name) { nameInput.focus(); return; }
     const foods = getFoodLibrary();
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    foods.push({ id, name, calories: parseInt(calInput.value) || 0, protein: parseInt(protInput.value) || 0, category: pickerWrap ? pickerWrap.getCat() : 'B' });
+    const newFood = { id, name, calories: parseInt(calInput.value) || 0, protein: parseInt(protInput.value) || 0, category: pickerWrap ? pickerWrap.getCat() : 'B' };
+    foods.push(newFood);
     saveFoodLibrary(foods);
     const log = getTodayFoodLog();
-    log[id] = 1;
+    log[id] = _makeLogEntry(1, newFood);
     setTodayFoodLog(log);
     nameInput.value = '';
     calInput.value  = '';
@@ -3868,7 +3934,7 @@ function openCatFoodScreen(cat) {
         foods.forEach(food => {
             const log = getTodayFoodLog();
             const row = document.createElement('div');
-            row.className = 'rc-food-row' + (log[food.id] ? ' rc-food-selected' : '');
+            row.className = 'rc-food-row' + (_logPortions(log[food.id]) > 0 ? ' rc-food-selected' : '');
             row.dataset.foodId = food.id;
 
             const handle = document.createElement('span');
@@ -3913,25 +3979,30 @@ function openCatFoodScreen(cat) {
             row.appendChild(info);
             row.appendChild(actions);
 
-            row.addEventListener('click', e => {
-                if (e.target.closest('.rc-drag-handle') || e.target.closest('.rc-food-edit-btn') || e.target.closest('.exercise-delete-btn') || e.target.closest('.rc-cat-picker-wrap')) return;
-                const log = getTodayFoodLog();
-                const wasSelected = !!log[food.id];
-                if (wasSelected) { delete log[food.id]; } else { log[food.id] = 1; }
-                setTodayFoodLog(log);
-                if (!wasSelected) {
-                    showRcScreen('rc-screen-calories');
-                    renderFoodList();
-                } else {
-                    row.className = 'rc-food-row';
-                    syncCaloriesToSlider();
-                }
-            });
+            if (isViewingPast()) {
+                editBtn.style.display = 'none';
+                delBtn.style.display  = 'none';
+            } else {
+                row.addEventListener('click', e => {
+                    if (e.target.closest('.rc-drag-handle') || e.target.closest('.rc-food-edit-btn') || e.target.closest('.exercise-delete-btn') || e.target.closest('.rc-cat-picker-wrap')) return;
+                    const log = getTodayFoodLog();
+                    const wasSelected = _logPortions(log[food.id]) > 0;
+                    if (wasSelected) { delete log[food.id]; } else { log[food.id] = _makeLogEntry(1, food); }
+                    setTodayFoodLog(log);
+                    if (!wasSelected) {
+                        showRcScreen('rc-screen-calories');
+                        renderFoodList();
+                    } else {
+                        row.className = 'rc-food-row';
+                        syncCaloriesToSlider();
+                    }
+                });
 
-            editBtn.addEventListener('click', e => {
-                e.stopPropagation();
-                openFoodEditInRow(food, row, () => openCatFoodScreen(_activeCat));
-            });
+                editBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    openFoodEditInRow(food, row, () => openCatFoodScreen(_activeCat));
+                });
+            }
 
             delBtn.addEventListener('click', e => {
                 e.stopPropagation();
