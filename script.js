@@ -484,7 +484,7 @@ function isCategoryCompleted(catName) {
         return !!(day.hydration || day.cryotherapy || day.creatine || day.nutrition != null || day.sleep != null);
     }
     if (catName === 'Mindfulness') {
-        return getMfMinutes() > 0;
+        return ['meditation', 'walk', 'drive'].some(m => (getMfModeData(m).minutes || 0) > 0);
     }
     if (catName === 'Reflection') {
         const raw = Storage.getItem('reflection_321');
@@ -4275,39 +4275,44 @@ document.getElementById('closeReflectionModal').onclick = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── MINDFULNESS CLOCK ───────────────────────────────────────────────────────
-function getMfMinutes() {
-    const raw = Storage.getItem('mindfulness_minutes');
+const MF_MODES = ['meditation', 'walk', 'drive'];
+let activeMfMode = 'meditation';
+
+function getMfModeData(mode) {
+    const raw = Storage.getItem('mindfulness_modes_v1');
     const all = raw ? JSON.parse(raw) : {};
-    return all[getDateKey(viewDate)] || 0;
+    const dayData = (all[getDateKey(viewDate)] || {})[mode];
+    if (dayData) return dayData;
+    // Migration: read legacy per-key storage for meditation mode
+    if (mode === 'meditation') {
+        const mRaw = Storage.getItem('mindfulness_minutes');
+        const bRaw = Storage.getItem('mindfulness_breathing');
+        const fRaw = Storage.getItem('mindfulness_focus');
+        const dk = getDateKey(viewDate);
+        return {
+            minutes:   mRaw ? (JSON.parse(mRaw)[dk] || 0) : 0,
+            breathing: bRaw ? (JSON.parse(bRaw)[dk] ?? 5) : 5,
+            focus:     fRaw ? (JSON.parse(fRaw)[dk] ?? 5) : 5,
+        };
+    }
+    return { minutes: 0, focus: 5, breathing: 5 };
 }
-function saveMfMinutes(minutes) {
-    const raw = Storage.getItem('mindfulness_minutes');
+
+function saveMfModeData(mode, patch) {
+    const raw = Storage.getItem('mindfulness_modes_v1');
     const all = raw ? JSON.parse(raw) : {};
-    all[getDateKey(viewDate)] = minutes;
-    Storage.setItem('mindfulness_minutes', JSON.stringify(all));
+    const dk = getDateKey(viewDate);
+    if (!all[dk]) all[dk] = {};
+    all[dk][mode] = { ...(all[dk][mode] || {}), ...patch };
+    Storage.setItem('mindfulness_modes_v1', JSON.stringify(all));
 }
-function getMfBreathing() {
-    const raw = Storage.getItem('mindfulness_breathing');
-    const all = raw ? JSON.parse(raw) : {};
-    return all[getDateKey(viewDate)] ?? 5;
-}
-function saveMfBreathing(val) {
-    const raw = Storage.getItem('mindfulness_breathing');
-    const all = raw ? JSON.parse(raw) : {};
-    all[getDateKey(viewDate)] = val;
-    Storage.setItem('mindfulness_breathing', JSON.stringify(all));
-}
-function getMfFocus() {
-    const raw = Storage.getItem('mindfulness_focus');
-    const all = raw ? JSON.parse(raw) : {};
-    return all[getDateKey(viewDate)] ?? 5;
-}
-function saveMfFocus(val) {
-    const raw = Storage.getItem('mindfulness_focus');
-    const all = raw ? JSON.parse(raw) : {};
-    all[getDateKey(viewDate)] = val;
-    Storage.setItem('mindfulness_focus', JSON.stringify(all));
-}
+
+function getMfMinutes()       { return getMfModeData(activeMfMode).minutes   || 0; }
+function saveMfMinutes(m)     { saveMfModeData(activeMfMode, { minutes: m }); }
+function getMfBreathing()     { return getMfModeData(activeMfMode).breathing ?? 5; }
+function saveMfBreathing(val) { saveMfModeData(activeMfMode, { breathing: val }); }
+function getMfFocus()         { return getMfModeData(activeMfMode).focus     ?? 5; }
+function saveMfFocus(val)     { saveMfModeData(activeMfMode, { focus: val }); }
 
 let mfDragging = false;
 let mfTotalDeg = 0;
@@ -4448,19 +4453,52 @@ function initMfClock() {
     svg.addEventListener('pointercancel', () => { mfDragging = false; });
 }
 
-function openMindfulnessModal() {
+function switchMfMode(mode) {
+    activeMfMode = mode;
+    document.getElementById('mfModeLabel').textContent = mode.toUpperCase();
+    document.getElementById('mfModeSelector').classList.remove('open');
+    setTimeout(() => {
+        const idx = MF_MODES.indexOf(mode);
+        const leftMode  = MF_MODES[(idx - 1 + MF_MODES.length) % MF_MODES.length];
+        const rightMode = MF_MODES[(idx + 1) % MF_MODES.length];
+        const leftBtn = document.getElementById('mfOptLeft');
+        const rightBtn = document.getElementById('mfOptRight');
+        leftBtn.dataset.mode = leftMode;
+        leftBtn.textContent = leftMode.toUpperCase();
+        rightBtn.dataset.mode = rightMode;
+        rightBtn.textContent = rightMode.toUpperCase();
+    }, 220);
     mfTotalDeg = (getMfMinutes() / 60) * 360;
     updateMfClockDisplay(Math.round(mfTotalDeg / 6));
-
     const breathing = getMfBreathing();
     const focus = getMfFocus();
     document.getElementById('mf-breath-slider').value = breathing;
     document.getElementById('mf-breath-val').textContent = breathing;
     document.getElementById('mf-focus-slider').value = focus;
     document.getElementById('mf-focus-val').textContent = focus;
+}
 
+function openMindfulnessModal() {
+    switchMfMode('meditation');
     document.getElementById('mindfulnessModal').style.display = 'flex';
 }
+
+document.getElementById('mfModeCurrent').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('mfModeSelector').classList.toggle('open');
+});
+
+document.getElementById('mfOptLeft').addEventListener('click', () => {
+    switchMfMode(document.getElementById('mfOptLeft').dataset.mode);
+});
+document.getElementById('mfOptRight').addEventListener('click', () => {
+    switchMfMode(document.getElementById('mfOptRight').dataset.mode);
+});
+
+document.addEventListener('click', (e) => {
+    const sel = document.getElementById('mfModeSelector');
+    if (sel && !sel.contains(e.target)) sel.classList.remove('open');
+});
 
 document.getElementById('closeMindfulnessModal').onclick = () => {
     document.getElementById('mindfulnessModal').style.display = 'none';
