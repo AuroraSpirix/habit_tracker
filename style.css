@@ -65,7 +65,7 @@ body {
     text-rendering: optimizeLegibility;
     display: flex;
     justify-content: center;
-    padding: 52px 24px;
+    padding: max(52px, env(safe-area-inset-top, 0px)) 24px max(16px, env(safe-area-inset-bottom, 0px));
     position: relative;
 }
 
@@ -2700,3 +2700,26 @@ p {
     font-family: var(--font-mono);
     letter-spacing: 0.08em;
 }
+
+/* ─── Analytics chart tooltip ───────────────────────────────────────────────── */
+.achart-tooltip {
+    position: fixed;
+    z-index: 99999;
+    background: var(--surface-3);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-sm);
+    padding: 5px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--text);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+.achart-tip-visible { opacity: 1; }
+
+/* Allow touch interactions on analytics charts */
+.analytics-chart-svg { touch-action: auto; }

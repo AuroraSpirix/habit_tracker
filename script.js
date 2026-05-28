@@ -2842,17 +2842,29 @@ try { document.execCommand('defaultParagraphSeparator', false, 'div'); } catch (
 document.getElementById('exNotesInput').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    document.execCommand('insertParagraph', false, null);
+    const container = document.getElementById('exNotesInput');
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
     const range = sel.getRangeAt(0);
-    let lineDiv = range.startContainer;
-    if (lineDiv.nodeType === Node.TEXT_NODE) lineDiv = lineDiv.parentNode;
-    const container = document.getElementById('exNotesInput');
-    while (lineDiv && lineDiv.parentNode !== container) lineDiv = lineDiv.parentNode;
-    if (lineDiv && !lineDiv.textContent.startsWith('• ')) {
-        document.execCommand('insertText', false, '• ');
+    range.deleteContents();
+    // Find the current top-level child div
+    let node = range.startContainer;
+    while (node && node.parentNode !== container) node = node.parentNode;
+    // Create new bullet line and insert after current
+    const newDiv = document.createElement('div');
+    newDiv.textContent = '• ';
+    if (node && node.parentNode === container) {
+        node.after(newDiv);
+    } else {
+        container.appendChild(newDiv);
     }
+    // Place cursor right after the bullet + space
+    const r = document.createRange();
+    r.setStart(newDiv.firstChild, 2);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    saveExerciseNote();
 });
 
 document.getElementById('closeExerciseModal5').onclick = () => {
@@ -5324,6 +5336,7 @@ document.getElementById('closeMusicModal').addEventListener('click', () => {
     const DURATION = 120;
     let remaining = DURATION;
     let interval = null;
+    let endTime = null; // absolute timestamp when countdown reaches 0
 
     const timerEl  = document.getElementById('gymTimer');
     const displayEl = document.getElementById('gymTimerDisplay');
@@ -5337,18 +5350,29 @@ document.getElementById('closeMusicModal').addEventListener('click', () => {
         displayEl.classList.toggle('gym-timer-done', remaining === 0);
     }
 
+    function tick() {
+        remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+        updateDisplay();
+        if (remaining <= 0) {
+            clearInterval(interval); interval = null;
+        }
+    }
+
     function startCountdown() {
         if (interval) clearInterval(interval);
-        interval = setInterval(() => {
-            if (remaining <= 0) {
-                clearInterval(interval); interval = null;
-                updateDisplay();
-                return;
-            }
-            remaining--;
-            updateDisplay();
-        }, 1000);
+        endTime = Date.now() + remaining * 1000;
+        interval = setInterval(tick, 500);
     }
+
+    // Re-sync when returning from background (phone lock, call, etc.)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && endTime !== null) {
+            remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+            updateDisplay();
+            if (remaining > 0 && !interval) startCountdown();
+            else if (remaining <= 0 && interval) { clearInterval(interval); interval = null; }
+        }
+    });
 
     function reset() {
         if (interval) clearInterval(interval);
@@ -5547,7 +5571,7 @@ function _fmtY(v) {
 }
 
 function makeLineSVG(points, color, opts) {
-    const { min = 0, maxVal = null, showDots = true, targetLine = null, chartH = 110 } = opts || {};
+    const { min = 0, maxVal = null, showDots = true, targetLine = null, chartH = 110, unit = '' } = opts || {};
     const W = 440, H = chartH, PL = 28, PR = 6, PT = 6, PB = 20;
     const CW = W - PL - PR, CH = H - PT - PB;
     const vals = points.map(p => p.value).filter(v => v != null);
@@ -5594,6 +5618,10 @@ function makeLineSVG(points, color, opts) {
         `<circle cx="${toX(p.i).toFixed(1)}" cy="${toY(p.v).toFixed(1)}" r="${dotR}" fill="${color}"/>`
     ).join('') : '';
 
+    const hitsSVG = vps.map(p =>
+        `<circle class="achart-hit" cx="${toX(p.i).toFixed(1)}" cy="${toY(p.v).toFixed(1)}" r="10" fill="transparent" style="cursor:pointer" data-val="${_fmtY(p.v)}" data-unit="${unit}" data-date="${points[p.i].date}"/>`
+    ).join('');
+
     const targetSVG = targetLine != null ? `<line x1="${PL}" y1="${toY(targetLine).toFixed(1)}" x2="${W-PR}" y2="${toY(targetLine).toFixed(1)}" stroke="rgba(240,236,228,0.15)" stroke-width="1" stroke-dasharray="4,3"/>` : '';
 
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
@@ -5604,14 +5632,14 @@ function makeLineSVG(points, color, opts) {
 ${gridSVG}${targetSVG}
 ${area  ? `<path d="${area}"  fill="url(#${gid})"/>` : ''}
 ${line  ? `<path d="${line}"  fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` : ''}
-${dotsSVG}${labelsSVG}
+${dotsSVG}${hitsSVG}${labelsSVG}
 </svg>`;
 }
 
 // ─── Bar chart ─────────────────────────────────────────────────────────────────
 
 function makeBarSVG(points, color, opts) {
-    const { maxVal = null, targetLine = null } = opts || {};
+    const { maxVal = null, targetLine = null, unit = '' } = opts || {};
     const W = 440, H = 90, PL = 4, PR = 4, PT = 8, PB = 26;
     const CW = W - PL - PR, CH = H - PT - PB;
     const vals = points.map(p => p.value).filter(v => v != null && v > 0);
@@ -5630,6 +5658,13 @@ function makeBarSVG(points, color, opts) {
         return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${color}" opacity="0.85"/>`;
     }).join('');
 
+    const hitsSVG = points.map((p, i) => {
+        if (!p.value || p.value <= 0) return '';
+        const cx = (PL + i * bW + bW / 2).toFixed(1);
+        const cy = (PT + CH - (p.value / dMax) * CH).toFixed(1);
+        return `<circle class="achart-hit" cx="${cx}" cy="${cy}" r="10" fill="transparent" style="cursor:pointer" data-val="${_fmtY(p.value)}" data-unit="${unit}" data-date="${p.date}"/>`;
+    }).join('');
+
     const li = _aLabelIndices(points.length);
     const labelsSVG = li.filter(i => i < points.length).map(i => {
         const x = (PL + i * bW + bW / 2).toFixed(1);
@@ -5641,7 +5676,7 @@ function makeBarSVG(points, color, opts) {
     const targetSVG = tY ? `<line x1="${PL}" y1="${tY}" x2="${W-PR}" y2="${tY}" stroke="rgba(61,220,132,0.42)" stroke-width="1" stroke-dasharray="4,3"/>` : '';
 
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
-${barsSVG}${targetSVG}${labelsSVG}
+${barsSVG}${targetSVG}${hitsSVG}${labelsSVG}
 </svg>`;
 }
 
@@ -6341,8 +6376,11 @@ function renderAnalytics(period) {
     col2.appendChild(virtueTrendSec);
 
     // pos 11
+    const _wVals = wData.map(d => d.value).filter(v => v != null);
+    const _wMin  = _wVals.length ? Math.min(..._wVals) - 2 : 100;
+    const _wMax  = _wVals.length ? Math.max(..._wVals) + 2 : 300;
     _aAppendSec(col2, 'BODY WEIGHT (LBS)',
-        makeLineSVG(wData, GOLD, { min: 150, maxVal: 180, showDots })
+        makeLineSVG(wData, GOLD, { min: _wMin, maxVal: _wMax, showDots, unit: 'lbs' })
     );
 
     // ── COLUMN 3 ──────────────────────────────────────────────────────────────
@@ -6392,4 +6430,44 @@ document.addEventListener('keydown', e => {
     const modal = document.getElementById('analyticsModal');
     if (e.key === 'Escape' && modal && modal.style.display !== 'none') closeAnalytics();
 });
+
+// ─── Chart tap/click tooltips ─────────────────────────────────────────────────
+(function () {
+    const tip = document.createElement('div');
+    tip.className = 'achart-tooltip';
+    document.body.appendChild(tip);
+
+    let hideTimer = null;
+
+    function showTip(val, unit, dateStr, x, y) {
+        clearTimeout(hideTimer);
+        const d = new Date(dateStr + 'T12:00:00');
+        const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        tip.textContent = label + ': ' + val + (unit ? ' ' + unit : '');
+        // Clamp to viewport
+        const tw = 140;
+        tip.style.left = Math.min(x + 12, window.innerWidth - tw - 8) + 'px';
+        tip.style.top  = Math.max(y - 36, 8) + 'px';
+        tip.classList.add('achart-tip-visible');
+        hideTimer = setTimeout(() => tip.classList.remove('achart-tip-visible'), 2000);
+    }
+
+    document.getElementById('analyticsModal').addEventListener('click', e => {
+        const hit = e.target;
+        if (!hit || !hit.classList.contains('achart-hit')) {
+            clearTimeout(hideTimer);
+            tip.classList.remove('achart-tip-visible');
+            return;
+        }
+        showTip(hit.dataset.val, hit.dataset.unit, hit.dataset.date, e.clientX, e.clientY);
+    });
+
+    document.getElementById('analyticsModal').addEventListener('touchend', e => {
+        const t = e.changedTouches[0];
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        if (!el || !el.classList.contains('achart-hit')) return;
+        e.preventDefault();
+        showTip(el.dataset.val, el.dataset.unit, el.dataset.date, t.clientX, t.clientY);
+    }, { passive: false });
+})();
 
