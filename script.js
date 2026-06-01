@@ -56,6 +56,14 @@ window.addEventListener('visibilitychange', () => {
 window.addEventListener('pagehide', _saveNow);
 window.addEventListener('beforeunload', _saveNow);
 
+// iOS Safari can scroll the document when inputs get focused even when
+// body has overflow:hidden, pushing the nav bar off screen. Reset any
+// accidental scroll immediately. The position:fixed on body in CSS is
+// the primary fix; this is a belt-and-suspenders guard for older iOS.
+window.addEventListener('scroll', () => {
+    if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
+}, { passive: true });
+
 async function _flushToCloud(immediate) {
     if (!_loaded || !_sb || !_userId) return;
     try {
@@ -3261,6 +3269,54 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
     };
 });
 
+// ─── Spirituality input suggestion dropdown ───────────────────────────────────
+(function () {
+    const SP_SUGGESTIONS = ['Church', 'Temple', 'CFM', 'BoM'];
+    const input = document.getElementById('spNewEntryInput');
+
+    const drop = document.createElement('div');
+    drop.className = 'sp-input-dropdown';
+    document.body.appendChild(drop);
+
+    const addEntry = (name) => {
+        const entries = getJournalEntries('spiritual');
+        entries.push({ topic: name, notes: '' });
+        saveJournalEntries('spiritual', entries);
+        renderJournalList('spiritual');
+        refreshChartAfterDataChange();
+        input.value = '';
+        drop.style.display = 'none';
+    };
+
+    SP_SUGGESTIONS.forEach(name => {
+        const opt = document.createElement('div');
+        opt.className = 'sp-input-dropdown-opt';
+        opt.textContent = name;
+        opt.addEventListener('pointerdown', e => {
+            e.preventDefault(); // keep input focused so blur doesn't close first
+            addEntry(name);
+        });
+        drop.appendChild(opt);
+    });
+
+    const position = () => {
+        const r = input.getBoundingClientRect();
+        drop.style.top   = (r.bottom + 4) + 'px';
+        drop.style.left  = r.left + 'px';
+        drop.style.width = r.width + 'px';
+    };
+
+    input.addEventListener('focus', () => { position(); drop.style.display = 'block'; });
+    // pointerdown on options calls e.preventDefault() which keeps the input
+    // focused, so blur never fires when an option is tapped. Zero delay is
+    // therefore safe and means the dropdown vanishes instantly on Escape,
+    // close button, or any other dismiss — no visible lag.
+    input.addEventListener('blur',  () => { setTimeout(() => { drop.style.display = 'none'; }, 0); });
+    input.addEventListener('input', () => {
+        if (input.value.trim()) { drop.style.display = 'none'; }
+        else { position(); drop.style.display = 'block'; }
+    });
+})();
 
 // ─── Recovery Slider Buttons ──────────────────────────────────────────────────
 const RECOVERY_KEY = 'recovery_data';
@@ -3517,9 +3573,9 @@ function attachFoodDragHandlers(handle, row, listId) {
     };
 }
 
-const FOOD_CATS      = ['B', 'S', 'L', 'D'];
-const FOOD_CAT_NAMES = { B: 'BREAKFAST', S: 'SNACKS', L: 'LUNCH', D: 'DINNER' };
-const FOOD_CAT_LABELS = { B: 'BREAKFAST', S: 'SNACK', L: 'LUNCH', D: 'DINNER' };
+const FOOD_CATS      = ['B', 'S', 'L', 'D', 'I', 'E'];
+const FOOD_CAT_NAMES = { B: 'BREAKFAST', S: 'SNACKS', L: 'LUNCH', D: 'DINNER', I: 'INGREDIENTS', E: 'DESSERTS' };
+const FOOD_CAT_LABELS = { B: 'BREAKFAST', S: 'SNACK', L: 'LUNCH', D: 'DINNER', I: 'INGREDIENT', E: 'DESSERT' };
 
 // Single shared dropdown lives on body — escapes all overflow/clip contexts
 const _sharedCatDropdown = (() => {
@@ -3587,7 +3643,7 @@ function makeCatPicker(initialCat, onSelect) {
     });
 
     wrap.appendChild(badge);
-    wrap.getCat = () => badge.textContent === '?' ? 'B' : badge.textContent;
+    wrap.getCat = () => badge.textContent === '?' ? null : badge.textContent;
     return wrap;
 }
 
@@ -3694,12 +3750,17 @@ function renderFoodList() {
     list.innerHTML = '';
     const foods = getFoodLibrary();
     const log   = getTodayFoodLog();
+    const libraryIds = new Set(foods.map(f => f.id));
     const eaten = foods.filter(f => _logPortions(log[f.id]) > 0);
+    const oneTimeMeals = Object.entries(log)
+        .filter(([id, entry]) => !libraryIds.has(id) && entry && entry.ot && _logPortions(entry) > 0)
+        .map(([id, entry]) => ({ id, name: entry.n || 'Meal', calories: entry.c || 0, protein: entry.g || 0, oneTime: true }));
 
-    if (eaten.length === 0) {
+    if (eaten.length === 0 && oneTimeMeals.length === 0) {
         list.innerHTML = '<p class="empty-state">No foods logged today.</p>';
     } else {
         eaten.forEach(food => list.appendChild(buildFoodRow(food, log)));
+        oneTimeMeals.forEach(food => list.appendChild(buildFoodRow(food, log)));
     }
     syncCaloriesToSlider();
 }
@@ -3711,6 +3772,7 @@ function fmtPortions(n) {
 function buildFoodRow(food, log) {
     const portions   = _logPortions(log[food.id]);
     const isSelected = portions > 0;
+    const isOneTime  = !!food.oneTime;
 
     const row = document.createElement('div');
     row.className = 'rc-food-row' + (isSelected ? ' rc-food-selected' : '');
@@ -3720,6 +3782,7 @@ function buildFoodRow(food, log) {
     handle.className = 'rc-drag-handle';
     handle.textContent = '⠿';
     attachFoodDragHandlers(handle, row, 'rc-food-list');
+    row.appendChild(handle);
 
     const info = document.createElement('div');
     info.className = 'rc-food-info';
@@ -3735,7 +3798,6 @@ function buildFoodRow(food, log) {
     info.appendChild(nameEl);
     info.appendChild(macrosEl);
 
-    row.appendChild(handle);
     row.appendChild(info);
 
     // Portion control — only in DOM when selected
@@ -3799,16 +3861,24 @@ function buildFoodRow(food, log) {
         if (e.target.closest('.rc-food-portions') || e.target.closest('.rc-drag-handle')) return;
         const log = getTodayFoodLog();
         if (_logPortions(log[food.id]) > 0) {
-            // Deselect — keep row visible so it can be re-selected; disappears on next open
             delete log[food.id];
             setTodayFoodLog(log);
-            row.classList.remove('rc-food-selected');
-            const portionCtrl = row.querySelector('.rc-food-portions');
-            if (portionCtrl) portionCtrl.style.display = 'none';
-            syncCaloriesToSlider();
+            if (isOneTime) {
+                renderFoodList();
+            } else {
+                // Deselect — keep row visible so it can be re-selected; disappears on next open
+                row.classList.remove('rc-food-selected');
+                const portionCtrl = row.querySelector('.rc-food-portions');
+                if (portionCtrl) portionCtrl.style.display = 'none';
+                syncCaloriesToSlider();
+            }
         } else {
             // Re-select — full re-render to restore portion control
-            log[food.id] = _makeLogEntry(1, food);
+            if (isOneTime) {
+                log[food.id] = { p: 1, c: food.calories, g: food.protein, n: food.name, ot: true };
+            } else {
+                log[food.id] = _makeLogEntry(1, food);
+            }
             setTodayFoodLog(log);
             renderFoodList();
         }
@@ -3893,13 +3963,21 @@ document.getElementById('rcAddFoodBtn').addEventListener('click', () => {
     const pickerWrap = document.querySelector('#rcNewFoodCat .rc-cat-picker-wrap');
     const name = nameInput.value.trim();
     if (!name) { nameInput.focus(); return; }
-    const foods = getFoodLibrary();
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const newFood = { id, name, calories: parseInt(calInput.value) || 0, protein: parseInt(protInput.value) || 0, category: pickerWrap ? pickerWrap.getCat() : 'B' };
-    foods.push(newFood);
-    saveFoodLibrary(foods);
+    const cal  = parseInt(calInput.value)  || 0;
+    const prot = parseInt(protInput.value) || 0;
+    const cat  = pickerWrap ? pickerWrap.getCat() : null;
     const log = getTodayFoodLog();
-    log[id] = _makeLogEntry(1, newFood);
+    if (cat) {
+        const foods = getFoodLibrary();
+        const newFood = { id, name, calories: cal, protein: prot, category: cat };
+        foods.push(newFood);
+        saveFoodLibrary(foods);
+        log[id] = _makeLogEntry(1, newFood);
+    } else {
+        // No category selected — one-time meal for today only, not saved to library
+        log[id] = { p: 1, c: cal, g: prot, n: name, ot: true };
+    }
     setTodayFoodLog(log);
     nameInput.value = '';
     calInput.value  = '';
@@ -4491,26 +4569,17 @@ function switchMfMode(mode) {
 }
 
 function openMindfulnessModal() {
-    switchMfMode('meditation');
+    activeMfMode = 'meditation';
+    mfTotalDeg = (getMfMinutes() / 60) * 360;
+    updateMfClockDisplay(Math.round(mfTotalDeg / 6));
+    const breathing = getMfBreathing();
+    const focus = getMfFocus();
+    document.getElementById('mf-breath-slider').value = breathing;
+    document.getElementById('mf-breath-val').textContent = breathing;
+    document.getElementById('mf-focus-slider').value = focus;
+    document.getElementById('mf-focus-val').textContent = focus;
     document.getElementById('mindfulnessModal').style.display = 'flex';
 }
-
-document.getElementById('mfModeCurrent').addEventListener('click', (e) => {
-    e.stopPropagation();
-    document.getElementById('mfModeSelector').classList.toggle('open');
-});
-
-document.getElementById('mfOptLeft').addEventListener('click', () => {
-    switchMfMode(document.getElementById('mfOptLeft').dataset.mode);
-});
-document.getElementById('mfOptRight').addEventListener('click', () => {
-    switchMfMode(document.getElementById('mfOptRight').dataset.mode);
-});
-
-document.addEventListener('click', (e) => {
-    const sel = document.getElementById('mfModeSelector');
-    if (sel && !sel.contains(e.target)) sel.classList.remove('open');
-});
 
 document.getElementById('closeMindfulnessModal').onclick = () => {
     document.getElementById('mindfulnessModal').style.display = 'none';
@@ -4564,9 +4633,18 @@ function getMindsetLibraryForType(type) {
         if (todayPerDay) return JSON.parse(todayPerDay);
     }
 
-    // Past day or no per-day data: fall back to the legacy global key.
-    // This key is intentionally never written to again, so past days always
-    // see the library as it was before per-day tracking was introduced.
+    // No per-day data yet: search backwards through recent days so today
+    // inherits yesterday's list. Additions/deletions today write only to
+    // today's per-day key, leaving prior days untouched.
+    const probe = new Date(viewDate);
+    for (let i = 0; i < 365; i++) {
+        probe.setDate(probe.getDate() - 1);
+        const dk = getDateKey(probe);
+        const raw = Storage.getItem('mindset_library__' + type + '__' + dk);
+        if (raw) return JSON.parse(raw);
+    }
+
+    // Legacy global key (data from before per-day tracking was introduced).
     const raw = Storage.getItem('mindset_library__' + type);
     return raw ? JSON.parse(raw) : [];
 }
@@ -4906,6 +4984,8 @@ document.getElementById('addBookBtn').onclick = () => {
     if (!lib.map(b => b.toLowerCase()).includes(name.toLowerCase())) {
         lib.push(name);
         saveMindsetLibraryForType(activeMindsetType, lib);
+        setMindsetItemChecked(activeMindsetType, name, true);
+        refreshChartAfterDataChange();
     }
     input.value = '';
     const list = document.getElementById('ms-book-list');
@@ -5486,34 +5566,67 @@ function analyticsWeightData(dates) {
 
 function analyticsSleepData(dates) {
     const all = JSON.parse(Storage.getItem(RECOVERY_KEY) || '{}');
-    return dates.map(d => ({ date: d, value: (all[d] || {}).sleep ?? null }));
+    const today = getDateKey(new Date());
+    const sortedKeys = Object.keys(all).filter(k => (all[k] || {}).sleep != null).sort();
+    return dates.map(d => {
+        if ((all[d] || {}).sleep != null) return { date: d, value: all[d].sleep };
+        if (d > today) return { date: d, value: null };
+        const past = sortedKeys.filter(k => k <= d).pop();
+        return { date: d, value: past != null ? all[past].sleep : null };
+    });
 }
 
 function analyticsHydrationData(dates) {
     const all = JSON.parse(Storage.getItem(RECOVERY_KEY) || '{}');
+    const today = getDateKey(new Date());
+    const getH = day => { const h = (day || {}).hydration; return h != null ? (typeof h === 'boolean' ? 5 : +h) : null; };
+    const sortedKeys = Object.keys(all).filter(k => getH(all[k]) != null).sort();
     return dates.map(d => {
-        const h = (all[d] || {}).hydration;
-        return { date: d, value: h != null ? (typeof h === 'boolean' ? 5 : +h) : null };
+        const direct = getH(all[d]);
+        if (direct != null) return { date: d, value: direct };
+        if (d > today) return { date: d, value: null };
+        const past = sortedKeys.filter(k => k <= d).pop();
+        return { date: d, value: past != null ? getH(all[past]) : null };
     });
 }
 
 function analyticsCalorieData(dates) {
     const all = JSON.parse(Storage.getItem(RECOVERY_KEY) || '{}');
-    return dates.map(d => ({
-        date: d,
-        cal:  (all[d] || {}).nutrition ?? null,
-        prot: (all[d] || {}).protein   ?? null,
-    }));
+    const today = getDateKey(new Date());
+    const hasData = k => { const d = all[k] || {}; return d.nutrition != null || d.protein != null; };
+    const sortedKeys = Object.keys(all).filter(hasData).sort();
+    return dates.map(d => {
+        const day = all[d] || {};
+        if (day.nutrition != null || day.protein != null) return { date: d, cal: day.nutrition ?? null, prot: day.protein ?? null };
+        if (d > today) return { date: d, cal: null, prot: null };
+        const past = sortedKeys.filter(k => k <= d).pop();
+        if (past == null) return { date: d, cal: null, prot: null };
+        const pd = all[past] || {};
+        return { date: d, cal: pd.nutrition ?? null, prot: pd.protein ?? null };
+    });
 }
 
 function analyticsMindfulnessData(dates) {
-    const all = JSON.parse(Storage.getItem('mindfulness_minutes') || '{}');
-    return dates.map(d => ({ date: d, value: all[d] ?? null }));
+    const legacy = JSON.parse(Storage.getItem('mindfulness_minutes') || '{}');
+    const newAll = JSON.parse(Storage.getItem('mindfulness_modes_v1') || '{}');
+    return dates.map(d => {
+        const fromNew = ((newAll[d] || {}).meditation || {}).minutes;
+        if (fromNew != null) return { date: d, value: fromNew };
+        const fromLegacy = legacy[d];
+        return { date: d, value: fromLegacy != null ? fromLegacy : 0 };
+    });
 }
 
 function analyticsPrayerData(dates) {
     const all = JSON.parse(Storage.getItem(PRAYER_KEY) || '{}');
-    return dates.map(d => ({ date: d, value: all[d] ?? null }));
+    const today = getDateKey(new Date());
+    const sortedKeys = Object.keys(all).filter(k => all[k] != null).sort();
+    return dates.map(d => {
+        if (all[d] != null) return { date: d, value: all[d] };
+        if (d > today) return { date: d, value: null };
+        const past = sortedKeys.filter(k => k <= d).pop();
+        return { date: d, value: past != null ? all[past] : null };
+    });
 }
 
 function analyticsRecoveryStats(dates) {
@@ -5840,7 +5953,7 @@ function makeCategoryTrendSVG(scoreData) {
             const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
             d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
         }
-        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+        return `<g id="acat-${ci}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></g>`;
     }).join('');
 
     // X-axis date labels
@@ -5852,15 +5965,6 @@ function makeCategoryTrendSVG(scoreData) {
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
 ${gridSVG}${linesSVG}${xLabelsSVG}
 </svg>`;
-}
-
-// Builds the legend HTML that sits below makeCategoryTrendSVG
-function makeCatLegendHTML() {
-    return `<div class="cat-legend">${
-        defaultValues.map((def, i) =>
-            `<span class="cat-legend-item" style="color:${CAT_LINE_COLORS[i]}">&#9679; ${def.name}</span>`
-        ).join('')
-    }</div>`;
 }
 
 // ─── 7-sin multi-line chart ────────────────────────────────────────────────────
@@ -5913,7 +6017,7 @@ function makeSinTrendSVG(sinData) {
             const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
             d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
         }
-        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+        return `<g id="asin-${ci}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></g>`;
     }).join('');
 
     const li = _aLabelIndices(n);
@@ -5924,14 +6028,6 @@ function makeSinTrendSVG(sinData) {
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
 ${gridSVG}${linesSVG}${xLabelsSVG}
 </svg>`;
-}
-
-function makeSinLegendHTML() {
-    return `<div class="cat-legend">${
-        avoidedActivitiesList.map((name, i) =>
-            `<span class="cat-legend-item" style="color:${SIN_LINE_COLORS[i]}">&#9679; ${name}</span>`
-        ).join('')
-    }</div>`;
 }
 
 // ─── 7-virtue multi-line chart ─────────────────────────────────────────────────
@@ -5971,7 +6067,7 @@ function makeVirtueTrendSVG(virtueData) {
             const cpx = ((pts[k-1][0] + pts[k][0]) / 2).toFixed(1);
             d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
         }
-        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+        return `<g id="avirt-${ci}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></g>`;
     }).join('');
 
     const li = _aLabelIndices(n);
@@ -5982,14 +6078,6 @@ function makeVirtueTrendSVG(virtueData) {
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="analytics-chart-svg" xmlns="http://www.w3.org/2000/svg">
 ${gridSVG}${linesSVG}${xLabelsSVG}
 </svg>`;
-}
-
-function makeVirtueLegendHTML() {
-    return `<div class="cat-legend">${
-        christLikeAttributesList.map((name, i) =>
-            `<span class="cat-legend-item" style="color:${VIRTUE_LINE_COLORS[i]}">&#9679; ${name}</span>`
-        ).join('')
-    }</div>`;
 }
 
 // ─── Gym progression section ───────────────────────────────────────────────────
@@ -6034,7 +6122,7 @@ function makeGymProgressSVG(datasets, allDates) {
             d += ` C ${cpx} ${pts[k-1][1].toFixed(1)} ${cpx} ${pts[k][1].toFixed(1)} ${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)}`;
         }
         const dots = vps.map(p => `<circle cx="${toX(p.i).toFixed(1)}" cy="${toY(p.v).toFixed(1)}" r="2" fill="${color}"/>`).join('');
-        return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
+        return `<g id="agym-${ci}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>${dots}</g>`;
     }).join('');
 
     const li = _aLabelIndices(n);
@@ -6047,10 +6135,9 @@ ${gridSVG}${linesSVG}${xLabelsSVG}
 </svg>`;
 }
 
-function makeGymSection(dates) {
+function makeGymSection() {
     const logs   = getExerciseLogs();
     const checks = getExerciseChecks();
-    const dateSet = new Set(dates);
 
     // exVolumes[muscle][exercise][date] = volume of CHECKED sets only
     const exVolumes = {};
@@ -6059,7 +6146,6 @@ function makeGymSection(dates) {
         if (parts.length < 3) return;
         const [date, muscle, ...exParts] = parts;
         const exercise = exParts.join('__');
-        if (!dateSet.has(date)) return;
 
         const checkedStates = checks[key] || [];
         const volume = (Array.isArray(sets) ? sets : []).reduce((s, set, i) => {
@@ -6132,9 +6218,7 @@ function makeGymSection(dates) {
         });
 
         chartDiv.innerHTML = makeGymProgressSVG(datasets, allDates);
-        legendDiv.innerHTML = datasets.map(({ name, color }) =>
-            `<span class="cat-legend-item" style="color:${color}">&#9679; ${name}</span>`
-        ).join('');
+        _buildInteractiveLegend(legendDiv, chartDiv, datasets.map(d => d.name), datasets.map(d => d.color), 'agym-');
     }
 
     select.addEventListener('change', () => showMuscle(select.value));
@@ -6282,6 +6366,38 @@ function makeReflectionSection(dates) {
     return sec;
 }
 
+// ─── Interactive legend helper ────────────────────────────────────────────────
+// Builds a clickable legend inside legendEl. Clicking a label toggles its line
+// (identified by <g id="prefix+N"> inside svgContainer). Empty selection = all shown.
+function _buildInteractiveLegend(legendEl, svgContainer, names, colors, idPrefix) {
+    legendEl.innerHTML = '';
+    legendEl.className = 'cat-legend';
+    const active = new Set();
+
+    const update = () => {
+        names.forEach((_, i) => {
+            const g = svgContainer.querySelector('#' + idPrefix + i);
+            if (g) g.style.display = (active.size === 0 || active.has(i)) ? '' : 'none';
+        });
+        Array.from(legendEl.children).forEach((item, i) => {
+            item.style.opacity = (active.size === 0 || active.has(i)) ? '1' : '0.3';
+        });
+    };
+
+    names.forEach((name, i) => {
+        const span = document.createElement('span');
+        span.className = 'cat-legend-item';
+        span.style.cssText = `color:${colors[i]};cursor:pointer;user-select:none;-webkit-user-select:none;`;
+        span.innerHTML = `&#9679; ${name}`;
+        span.addEventListener('click', () => {
+            if (active.has(i)) active.delete(i);
+            else active.add(i);
+            update();
+        });
+        legendEl.appendChild(span);
+    });
+}
+
 // ─── Render orchestrator ───────────────────────────────────────────────────────
 
 function _aAppendSec(parent, title, html) {
@@ -6341,15 +6457,17 @@ function renderAnalytics(period) {
     // ── COLUMN 1 ──────────────────────────────────────────────────────────────
     // pos 1: Gym Volume
 
-    const gymSec = makeGymSection(dates);
+    const gymSec = makeGymSection();
     if (gymSec) col1.appendChild(gymSec);
 
     // pos 4: Sin Levels
     const sinTrendSec = document.createElement('div');
     sinTrendSec.className = 'asec';
-    sinTrendSec.innerHTML = `<div class="asec-ttl">SIN LEVELS</div>` +
-        makeSinTrendSVG(analyticsSinData(dates)) + makeSinLegendHTML();
+    sinTrendSec.innerHTML = `<div class="asec-ttl">SIN LEVELS</div>` + makeSinTrendSVG(analyticsSinData(dates));
+    const sinLegendEl = document.createElement('div');
+    sinTrendSec.appendChild(sinLegendEl);
     col1.appendChild(sinTrendSec);
+    _buildInteractiveLegend(sinLegendEl, sinTrendSec, avoidedActivitiesList, SIN_LINE_COLORS, 'asin-');
 
     // pos 7, 10
     _aAppendSec(col1, 'CALORIES',
@@ -6371,9 +6489,11 @@ function renderAnalytics(period) {
     // pos 8: Virtue Levels
     const virtueTrendSec = document.createElement('div');
     virtueTrendSec.className = 'asec';
-    virtueTrendSec.innerHTML = `<div class="asec-ttl">VIRTUE LEVELS</div>` +
-        makeVirtueTrendSVG(analyticsVirtueData(dates)) + makeVirtueLegendHTML();
+    virtueTrendSec.innerHTML = `<div class="asec-ttl">VIRTUE LEVELS</div>` + makeVirtueTrendSVG(analyticsVirtueData(dates));
+    const virtueLegendEl = document.createElement('div');
+    virtueTrendSec.appendChild(virtueLegendEl);
     col2.appendChild(virtueTrendSec);
+    _buildInteractiveLegend(virtueLegendEl, virtueTrendSec, christLikeAttributesList, VIRTUE_LINE_COLORS, 'avirt-');
 
     // pos 11
     const _wVals = wData.map(d => d.value).filter(v => v != null);
@@ -6387,9 +6507,11 @@ function renderAnalytics(period) {
     // pos 3: Category Trends
     const catTrendSec = document.createElement('div');
     catTrendSec.className = 'asec';
-    catTrendSec.innerHTML = `<div class="asec-ttl">CATEGORY TRENDS</div>` +
-        makeCategoryTrendSVG(scoreData) + makeCatLegendHTML();
+    catTrendSec.innerHTML = `<div class="asec-ttl">CATEGORY TRENDS</div>` + makeCategoryTrendSVG(scoreData);
+    const catLegendEl = document.createElement('div');
+    catTrendSec.appendChild(catLegendEl);
     col3.appendChild(catTrendSec);
+    _buildInteractiveLegend(catLegendEl, catTrendSec, defaultValues.map(d => d.name), CAT_LINE_COLORS, 'acat-');
 
     // pos 6: Reflection
     col3.appendChild(makeReflectionSection(dates));
