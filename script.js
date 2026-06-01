@@ -1294,7 +1294,7 @@ function openNoteModal(index) {
     noteTitle.textContent = cat.name.toUpperCase() + " NOTES";
     noteArea.value = cat.note || "";
     noteModal.style.display = 'flex';
-    setTimeout(() => { noteArea.focus(); autoGrow(noteArea); }, 50);
+    setTimeout(() => { noteArea.focus({ preventScroll: true }); autoGrow(noteArea); }, 50);
 }
 
 document.getElementById('closeNoteModal').onclick = () => {
@@ -1898,11 +1898,11 @@ function renderMobilityOtherList() {
         row.addEventListener('pointercancel', () => { clearTimeout(pressTimer); pressTimer = null; });
 
         const openNotesPanel = () => {
-            if (panel.classList.contains('open')) { setTimeout(() => ta.focus(), 50); return; }
+            if (panel.classList.contains('open')) { setTimeout(() => ta.focus({ preventScroll: true }), 50); return; }
             list.querySelectorAll('.entry-wrapper').forEach(w => { if (w !== wrapper) collapseEntryWrapper(w); });
             panel.classList.add('open');
             row.classList.add('open');
-            setTimeout(() => ta.focus(), 400);
+            setTimeout(() => ta.focus({ preventScroll: true }), 400);
         };
 
         check.onclick = (e) => {
@@ -2136,11 +2136,11 @@ function renderCreativityList() {
         row.addEventListener('pointercancel', () => { clearTimeout(pressTimer); pressTimer = null; });
 
         const openNotesPanel = () => {
-            if (panel.classList.contains('open')) { setTimeout(() => ta.focus(), 50); return; }
+            if (panel.classList.contains('open')) { setTimeout(() => ta.focus({ preventScroll: true }), 50); return; }
             list.querySelectorAll('.entry-wrapper').forEach(w => { if (w !== wrapper) collapseEntryWrapper(w); });
             panel.classList.add('open');
             row.classList.add('open');
-            setTimeout(() => ta.focus(), 400);
+            setTimeout(() => ta.focus({ preventScroll: true }), 400);
         };
 
         check.onclick = (e) => {
@@ -2253,7 +2253,7 @@ function openSimpleScreen(type) {
     const notes = getMobilitySimpleNotes();
     document.getElementById('exSimpleNotes').value = notes[getMobilitySimpleKey(type)] || '';
     showExScreen('ex-screen-simple');
-    setTimeout(() => { const ta = document.getElementById('exSimpleNotes'); ta.focus(); autoGrow(ta); }, 50);
+    setTimeout(() => { const ta = document.getElementById('exSimpleNotes'); ta.focus({ preventScroll: true }); autoGrow(ta); }, 50);
 }
 
 
@@ -3171,7 +3171,7 @@ function renderJournalList(type) {
                 });
                 panel.classList.add('open');
                 row.classList.add('open');
-                setTimeout(() => { ta.focus(); autoGrow(ta); }, 400);
+                setTimeout(() => { ta.focus({ preventScroll: true }); autoGrow(ta); }, 400);
             };
 
             inner.appendChild(row);
@@ -3213,7 +3213,7 @@ function openJournalNotes(type, idx) {
     showJournalScreen(p + '-screen-notes');
     setTimeout(() => {
         const notesEl = document.getElementById(p + 'NotesInput');
-        notesEl.focus();
+        notesEl.focus({ preventScroll: true });
         autoGrow(notesEl);
     }, 50);
 }
@@ -3273,6 +3273,7 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
 (function () {
     const SP_SUGGESTIONS = ['Church', 'Temple', 'CFM', 'BoM'];
     const input = document.getElementById('spNewEntryInput');
+    const modal = document.getElementById('spiritualModal');
 
     const drop = document.createElement('div');
     drop.className = 'sp-input-dropdown';
@@ -3299,22 +3300,29 @@ Object.entries(JOURNAL_CONFIGS).forEach(([type, cfg]) => {
         drop.appendChild(opt);
     });
 
+    // Position dropdown ABOVE the input so the keyboard never covers it.
     const position = () => {
         const r = input.getBoundingClientRect();
-        drop.style.top   = (r.bottom + 4) + 'px';
-        drop.style.left  = r.left + 'px';
-        drop.style.width = r.width + 'px';
+        drop.style.top    = 'auto';
+        drop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+        drop.style.left   = r.left + 'px';
+        drop.style.width  = r.width + 'px';
     };
 
     input.addEventListener('focus', () => { position(); drop.style.display = 'block'; });
     // pointerdown on options calls e.preventDefault() which keeps the input
     // focused, so blur never fires when an option is tapped. Zero delay is
-    // therefore safe and means the dropdown vanishes instantly on Escape,
-    // close button, or any other dismiss — no visible lag.
+    // safe and means the dropdown vanishes instantly on Escape or close.
     input.addEventListener('blur',  () => { setTimeout(() => { drop.style.display = 'none'; }, 0); });
     input.addEventListener('input', () => {
         if (input.value.trim()) { drop.style.display = 'none'; }
         else { position(); drop.style.display = 'block'; }
+    });
+
+    // Reposition dropdown when viewport resizes (keyboard open/close).
+    const vv = window.visualViewport;
+    if (vv) vv.addEventListener('resize', () => {
+        if (drop.style.display !== 'none') position();
     });
 })();
 
@@ -3931,7 +3939,7 @@ function openFoodEditInRow(food, row, onDone) {
     editBtnGroup.appendChild(cancelBtn);
     editRow.appendChild(editBtnGroup);
     row.appendChild(editRow);
-    nameInput.focus();
+    nameInput.focus({ preventScroll: true });
 
     const save = () => {
         const newName = nameInput.value.trim();
@@ -4219,7 +4227,7 @@ function attachRfInputHandlers(section, input) {
                 const body = document.getElementById('rf-body-' + section);
                 const inputs = Array.from(body.querySelectorAll('.rf-input'));
                 const idx = inputs.indexOf(input);
-                insertRfRowAfter(section, idx).focus();
+                insertRfRowAfter(section, idx).focus({ preventScroll: true });
             }
         } else if (e.key === 'Enter') {
             _rfEnterHandled = true;
@@ -4327,7 +4335,7 @@ function rfOpenSection(section, delay) {
         hdr.classList.add('rf-open');
         setTimeout(() => {
             const first = body.querySelector('.rf-input');
-            if (first) first.focus();
+            if (first) first.focus({ preventScroll: true });
         }, 50);
     }, delay || 0);
 }
@@ -4875,7 +4883,7 @@ function renderBookList() {
         // the row click and the checkbox click.
         const openNotesPanel = () => {
             if (panel.classList.contains('open')) {
-                setTimeout(() => ta.focus(), 50);
+                setTimeout(() => ta.focus({ preventScroll: true }), 50);
                 return;
             }
             list.querySelectorAll('.entry-wrapper').forEach(w => {
@@ -4883,7 +4891,7 @@ function renderBookList() {
             });
             panel.classList.add('open');
             row.classList.add('open');
-            setTimeout(() => ta.focus(), 400);
+            setTimeout(() => ta.focus({ preventScroll: true }), 400);
         };
 
         // Checkbox: toggle per-day check and open the notes panel.
@@ -4938,7 +4946,7 @@ function openBookNotes(item) {
     );
 
     showMsScreen('ms-screen-notes');
-    setTimeout(() => { const ta = document.getElementById('msBookNotes'); ta.focus(); autoGrow(ta); }, 50);
+    setTimeout(() => { const ta = document.getElementById('msBookNotes'); ta.focus({ preventScroll: true }); autoGrow(ta); }, 50);
 }
 
 // Rename a mindset library item (book/video/podcast/conversation) and migrate
@@ -5061,7 +5069,7 @@ function openAvoidedModal(activity) {
     }
     document.getElementById('avoidedNotes').value = notesText;
     document.getElementById('avoidedModal').style.display = 'flex';
-    setTimeout(() => { const ta = document.getElementById('avoidedNotes'); ta.focus(); autoGrow(ta); }, 50);
+    setTimeout(() => { const ta = document.getElementById('avoidedNotes'); ta.focus({ preventScroll: true }); autoGrow(ta); }, 50);
 }
 
 function closeAvoidedModal() {
@@ -6552,6 +6560,49 @@ document.addEventListener('keydown', e => {
     const modal = document.getElementById('analyticsModal');
     if (e.key === 'Escape' && modal && modal.style.display !== 'none') closeAnalytics();
 });
+
+// ─── Global iOS keyboard adaptation ──────────────────────────────────────────
+// visualViewport shrinks when the soft keyboard opens. For browsers that don't
+// yet support 100dvh (CSS fix above), pin every open .modal to the visible
+// height so content never slides behind the keyboard.
+(function () {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    vv.addEventListener('resize', () => {
+        const h = vv.height + 'px';
+        document.querySelectorAll('.modal').forEach(m => {
+            m.style.height = (m.style.display !== 'none') ? h : '';
+        });
+    });
+})();
+
+// ─── Suppress iOS AutoFill bar ───────────────────────────────────────────────
+// The iOS AutoFill toolbar (key/card/map/checkmark icons) appears above the
+// keyboard whenever iOS thinks an input might want stored credentials or
+// contact info. Setting autocomplete="off" + data-form-type="other" tells iOS
+// to skip it. A MutationObserver covers dynamically created inputs so we don't
+// need to touch each createElement() call individually.
+(function () {
+    const fix = el => {
+        el.setAttribute('autocomplete', 'off');
+        el.setAttribute('data-form-type', 'other');
+    };
+    const isFocusable = el =>
+        el.tagName === 'TEXTAREA' ||
+        (el.tagName === 'INPUT' && el.type !== 'password');
+
+    // Stamp existing inputs
+    document.querySelectorAll('input:not([type="password"]), textarea').forEach(fix);
+
+    // Stamp any inputs added later (reflection rows, rename fields, food edit, etc.)
+    new MutationObserver(mutations => {
+        mutations.forEach(({ addedNodes }) => addedNodes.forEach(node => {
+            if (node.nodeType !== 1) return;
+            if (isFocusable(node)) fix(node);
+            node.querySelectorAll?.('input:not([type="password"]), textarea').forEach(fix);
+        }));
+    }).observe(document.body, { childList: true, subtree: true });
+})();
 
 // ─── Chart tap/click tooltips ─────────────────────────────────────────────────
 (function () {

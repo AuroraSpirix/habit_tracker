@@ -430,7 +430,9 @@ button:hover {
     display: none;
     position: fixed;
     top: 0; left: 0;
-    width: 100%; height: 100%;
+    width: 100%;
+    height: 100%;
+    height: 100dvh; /* shrinks with keyboard on iOS 15.4+ / Chrome 108+ */
     background: rgba(0,0,0,0.75);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
@@ -439,6 +441,7 @@ button:hover {
     align-items: flex-start;
     padding: 20px;
     overflow-y: auto;
+    overscroll-behavior-y: contain; /* stop scroll from bleeding out to body */
     scrollbar-width: none;
 }
 .modal::-webkit-scrollbar { display: none; }
@@ -2728,6 +2731,17 @@ p {
 
 /* Allow touch interactions on analytics charts */
 .analytics-chart-svg { touch-action: auto; }
+
+/* Hide the iOS inline autofill icon that appears inside input fields */
+input::-webkit-credentials-auto-fill-button,
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-caps-lock-indicator {
+    visibility: hidden;
+    display: none !important;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+}
 
 
 .sp-input-dropdown {
